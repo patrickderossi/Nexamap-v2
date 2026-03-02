@@ -1,0 +1,23 @@
+[build]
+  command = "pnpm install && pnpm run build:client"
+  functions = "netlify/functions"
+  publish = "dist/spa"
+
+[build.environment]
+  NODE_VERSION = "22"
+  NPM_USE_PRODUCTION = "false"
+
+[functions."*"]
+  node_bundler = "esbuild"
+  external_node_modules = [
+    "express",
+    "@sentry/profiling-node",
+    "@sentry-internal/node-cpu-profiler"
+  ]
+  node_bundler_options = { external = [".node"] }
+
+[[redirects]]
+  force = true
+  from = "/api/*"
+  status = 200
+  to = "/.netlify/functions/api/:splat"
