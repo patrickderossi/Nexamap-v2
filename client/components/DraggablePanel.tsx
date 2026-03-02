@@ -22,7 +22,11 @@ export function DraggablePanel({
   minimizable = true,
   defaultMinimized = false,
 }: DraggablePanelProps) {
-  const [position, setPosition] = useState({ x: initialX, y: initialY });
+  const [position, setPosition] = useState(() => {
+    const safeX = Math.max(0, Math.min(initialX, window.innerWidth - 100));
+    const safeY = Math.max(0, Math.min(initialY, window.innerHeight - 60));
+    return { x: safeX, y: safeY };
+  });
   const [isDragging, setIsDragging] = useState(false);
   const [isMinimized, setIsMinimized] = useState(defaultMinimized);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
@@ -140,7 +144,15 @@ export function DraggablePanel({
   }, [isDragging, handleMouseMove, handleTouchMove, handleMouseUp]);
 
   useEffect(() => {
+    const handleResize = () => {
+      setPosition(prev => ({
+        x: Math.max(0, Math.min(prev.x, window.innerWidth - 100)),
+        y: Math.max(0, Math.min(prev.y, window.innerHeight - 60)),
+      }));
+    };
+    window.addEventListener('resize', handleResize);
     return () => {
+      window.removeEventListener('resize', handleResize);
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }

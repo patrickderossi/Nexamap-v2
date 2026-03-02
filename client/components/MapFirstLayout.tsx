@@ -13,6 +13,8 @@ import {
   Zap,
   Flame,
   Shield,
+  ChevronLeft,
+  ChevronRight,
   Search,
 } from "lucide-react";
 import { LeafletMap } from "./LeafletMap";
@@ -103,7 +105,6 @@ export function MapFirstLayout({
   loading,
 }: MapFirstLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [sidebarMinimized, setSidebarMinimized] = useState(false);
   const [subdivisionMode, setSubdivisionMode] = useState<SubdivisionMode>({
     active: false,
     drawing: false,
@@ -256,6 +257,10 @@ export function MapFirstLayout({
   const handleSetbackAnalysisToggle = useCallback(() => {
     setShowSetbackAnalysis(!showSetbackAnalysis);
   }, [showSetbackAnalysis]);
+
+  const handleSidebarToggle = useCallback(() => {
+    setSidebarOpen(!sidebarOpen);
+  }, [sidebarOpen]);
 
   const handleBaseLayerChange = useCallback((layer: BaseLayerType) => {
     setBaseLayer(layer);
@@ -551,8 +556,8 @@ export function MapFirstLayout({
         {selectedParcel && !subdivisionMode.active && (
           <DraggablePanel
             title="Analysis Tools"
-            initialX={window.innerWidth - 240}
-            initialY={window.innerHeight - 340}
+            initialX={Math.min(window.innerWidth - 250, window.innerWidth - 250)}
+            initialY={Math.max(80, Math.min(window.innerHeight - 400, window.innerHeight * 0.5))}
             minimizable={true}
           >
             <MainToolbar
@@ -616,46 +621,59 @@ export function MapFirstLayout({
         />
       </div>
 
-      {/* Property Details Panel */}
-      {!subdivisionMode.active && (
-        <DraggablePanel
-          title={address || "Property Details"}
-          initialX={10}
-          initialY={80}
-          minimizable={true}
-          onClose={() => setSidebarOpen(false)}
-          className="w-[350px]"
-        >
-          <div className="flex flex-col" style={{ maxHeight: 'calc(80vh - 40px)' }}>
-            <div className="bg-white border-b border-gray-200 p-3 flex-shrink-0">
-              <div className="flex items-center justify-center">
-                <img
-                  src="https://cdn.builder.io/api/v1/image/assets%2F0df748b9b86d4bc5af1be6fda4f6f0d0%2F9fbd34283535421db2163a3b996c4e11?format=webp&width=800"
-                  alt="Nexamap Logo"
-                  className="h-8 w-auto object-contain"
-                />
-              </div>
-              <div className="text-center mt-1">
-                <p className="text-gray-600 text-xs">
-                  {address || "Search for a property to see detailed analysis"}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex-1 w-full overflow-auto">
-              <PropertyInfoTabs
-                selectedParcel={selectedParcel}
-                address={address}
-                data={data}
-                onSearch={handleListingsSearch}
-                listings={listings}
-                listingsLoading={listingsLoading}
-                selectedListingId={selectedListing?.id}
-                onSelectListing={setSelectedListing}
-              />
-            </div>
+      {/* Left Sidebar Panel */}
+      <div
+        className={`absolute top-0 left-0 h-full bg-white shadow-xl border-r border-gray-200 transition-transform duration-300 z-[1000] flex flex-col ${
+          sidebarOpen && !subdivisionMode.active
+            ? "translate-x-0"
+            : "-translate-x-full"
+        }`}
+        style={{ width: "350px" }}
+      >
+        {/* Sidebar Header */}
+        <div className="bg-white border-b border-gray-200 p-4 flex-shrink-0">
+          <div className="flex items-center justify-between mb-3">
+            <img
+              src="https://cdn.builder.io/api/v1/image/assets%2F0df748b9b86d4bc5af1be6fda4f6f0d0%2F9fbd34283535421db2163a3b996c4e11?format=webp&width=800"
+              alt="Nexamap Logo"
+              className="h-10 w-auto object-contain"
+            />
           </div>
-        </DraggablePanel>
+          <div className="text-center">
+            <p className="text-gray-600 text-sm">
+              {address || "Search for a property"}
+            </p>
+          </div>
+        </div>
+
+        {/* Sidebar Content - Tabbed Interface - Flex-1 to take remaining space */}
+        <div className="flex-1 w-full overflow-hidden">
+          <PropertyInfoTabs
+            selectedParcel={selectedParcel}
+            address={address}
+            data={data}
+            onSearch={handleListingsSearch}
+            listings={listings}
+            listingsLoading={listingsLoading}
+            selectedListingId={selectedListing?.id}
+            onSelectListing={setSelectedListing}
+          />
+        </div>
+      </div>
+
+      {/* Sidebar Toggle Button */}
+      {!subdivisionMode.active && (
+        <button
+          onClick={handleSidebarToggle}
+          className="absolute top-1/2 transform -translate-y-1/2 bg-white border border-gray-200 rounded-r-lg p-2 shadow-lg hover:bg-gray-50 z-[1001] transition-all duration-300"
+          style={{ left: sidebarOpen ? "350px" : "0px" }}
+        >
+          {sidebarOpen ? (
+            <ChevronLeft className="w-5 h-5 text-gray-600" />
+          ) : (
+            <ChevronRight className="w-5 h-5 text-gray-600" />
+          )}
+        </button>
       )}
 
       {/* Loading Overlay */}
