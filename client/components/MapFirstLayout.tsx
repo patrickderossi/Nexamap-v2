@@ -103,7 +103,7 @@ export function MapFirstLayout({
   const [showFeasibilityStudy, setShowFeasibilityStudy] = useState(false);
   const [showSetbackAnalysis, setShowSetbackAnalysis] = useState(false);
 
-  // Property valuation state
+  const valuationRequestId = useRef(0);
   const [valuation, setValuation] = useState<PropertyValuation | null>(null);
   const [valuationLoading, setValuationLoading] = useState(false);
 
@@ -215,6 +215,7 @@ export function MapFirstLayout({
 
       setValuation(null);
       setValuationLoading(false);
+      const currentRequestId = ++valuationRequestId.current;
       const suburb = propertyData?.cadastralInfo?.locality;
       const lotSizeStr = propertyData?.lotSize;
       if (suburb && lotSizeStr) {
@@ -224,9 +225,17 @@ export function MapFirstLayout({
           if (lotSize > 0) {
             setValuationLoading(true);
             fetchPropertyValuation(suburb, lotSize)
-              .then((result) => setValuation(result))
+              .then((result) => {
+                if (valuationRequestId.current === currentRequestId) {
+                  setValuation(result);
+                }
+              })
               .catch((err) => devLog.warn("Valuation fetch failed:", err))
-              .finally(() => setValuationLoading(false));
+              .finally(() => {
+                if (valuationRequestId.current === currentRequestId) {
+                  setValuationLoading(false);
+                }
+              });
           }
         }
       }

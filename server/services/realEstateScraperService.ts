@@ -406,7 +406,8 @@ export async function estimatePropertyValue(
 
     let landSizeNum = 0;
     if (listing.landSize) {
-      const match = listing.landSize.match(/(\d+(?:\.\d+)?)/);
+      const sanitized = listing.landSize.replace(/,/g, "");
+      const match = sanitized.match(/(\d+(?:\.\d+)?)/);
       if (match) landSizeNum = parseFloat(match[1]);
     }
     if (landSizeNum < 50) continue;
@@ -472,7 +473,8 @@ export function filterByLotSize(
   return listings.filter((listing) => {
     if (!listing.landSize) return true;
 
-    const sizeMatch = listing.landSize.match(/(\d+(?:\.\d+)?)/);
+    const sanitized = listing.landSize.replace(/,/g, "");
+    const sizeMatch = sanitized.match(/(\d+(?:\.\d+)?)/);
     if (!sizeMatch) return true;
 
     const size = parseFloat(sizeMatch[1]);
