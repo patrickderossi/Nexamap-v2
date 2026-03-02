@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Property Valuation Estimator",
+  "version": "1.0",
+  "description": "Get AI-powered property valuations on realestate.com.au listings",
+  "permissions": [],
+  "content_scripts": [
+    {
+      "matches": ["https://www.realestate.com.au/property-*"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

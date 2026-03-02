@@ -64,6 +64,11 @@ const SetbackAnalysisPanel = lazy(() =>
     default: module.SetbackAnalysisPanel,
   })),
 );
+const ValuationEstimatePanel = lazy(() =>
+  import("./ValuationEstimatePanel").then((module) => ({
+    default: module.ValuationEstimatePanel,
+  })),
+);
 
 interface MapFirstLayoutProps {
   data: PropertyData | null;
@@ -101,6 +106,7 @@ export function MapFirstLayout({
   const [showYieldEstimator, setShowYieldEstimator] = useState(false);
   const [showFeasibilityStudy, setShowFeasibilityStudy] = useState(false);
   const [showSetbackAnalysis, setShowSetbackAnalysis] = useState(false);
+  const [showValuationEstimate, setShowValuationEstimate] = useState(false);
 
   // Real estate listings state
   const [listings, setListings] = useState<Listing[]>([]);
@@ -237,6 +243,10 @@ export function MapFirstLayout({
   const handleSetbackAnalysisToggle = useCallback(() => {
     setShowSetbackAnalysis(!showSetbackAnalysis);
   }, [showSetbackAnalysis]);
+
+  const handleValuationEstimateToggle = useCallback(() => {
+    setShowValuationEstimate(!showValuationEstimate);
+  }, [showValuationEstimate]);
 
   const handleSidebarToggle = useCallback(() => {
     setSidebarOpen(!sidebarOpen);
@@ -532,6 +542,33 @@ export function MapFirstLayout({
           </DraggablePanel>
         )}
 
+        {/* Valuation Estimate Panel - floats over map */}
+        {showValuationEstimate && (
+          <DraggablePanel
+            title="Valuation Estimate"
+            initialX={Math.max(0, window.innerWidth - 700)}
+            initialY={100}
+            className="w-96"
+            onClose={() => setShowValuationEstimate(false)}
+          >
+            <Suspense
+              fallback={
+                <PanelLoadingFallback
+                  title="Valuation Estimate"
+                  className="w-96"
+                />
+              }
+            >
+              <ValuationEstimatePanel
+                selectedParcel={selectedParcel ?? undefined}
+                propertyData={data}
+                show={showValuationEstimate}
+                onClose={() => setShowValuationEstimate(false)}
+              />
+            </Suspense>
+          </DraggablePanel>
+        )}
+
         {/* Subdivision Toolbar - Bottom center, only for subdivision tools */}
         {(selectedParcel || subdivisionMode.active) && (
           <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-[1000]">
@@ -647,6 +684,8 @@ export function MapFirstLayout({
                 onFeasibilityStudyToggle={handleFeasibilityStudyToggle}
                 showSetbackAnalysis={showSetbackAnalysis}
                 onSetbackAnalysisToggle={handleSetbackAnalysisToggle}
+                showValuationEstimate={showValuationEstimate}
+                onValuationEstimateToggle={handleValuationEstimateToggle}
                 subdivisionActive={subdivisionMode.active}
               />
             </div>

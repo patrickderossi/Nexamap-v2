@@ -14,6 +14,7 @@ export interface ListingFilters {
   maxLotSize?: number;
   minPrice?: number;
   maxPrice?: number;
+  channel?: "buy" | "sold";
 }
 
 export interface Listing {
@@ -94,7 +95,7 @@ function mapPropertyType(zylaType: string): string {
  * Generate cache key from filters
  */
 function getCacheKey(filters: ListingFilters): string {
-  return `${filters.suburb}|${filters.propertyType}|${filters.minPrice}|${filters.maxPrice}`;
+  return `${filters.suburb}|${filters.propertyType}|${filters.minPrice}|${filters.maxPrice}|${filters.channel || "buy"}`;
 }
 
 /**
@@ -107,7 +108,7 @@ function buildZylaParams(
     searchLocation: filters.suburb || "Australia",
     searchLocationSubtext: filters.suburb || "Australia",
     type: filters.suburb || "Australia",
-    channel: "buy",
+    channel: filters.channel || "buy",
     pageSize: 30,
     page: 1,
     surroundingSuburbs: false,
@@ -375,8 +376,17 @@ export interface PropertyValuationResult {
     price: number;
     landSize: number;
     pricePerSqm: number;
+    bedrooms?: number;
+    bathrooms?: number;
+    parking?: number;
+    propertyType?: string;
+    adjustedPrice?: number;
+    similarityScore?: number;
   }>;
   suburb: string;
+  confidence?: string;
+  confidenceScore?: number;
+  channel?: string;
 }
 
 function percentile(sorted: number[], p: number): number {
@@ -387,17 +397,54 @@ function percentile(sorted: number[], p: number): number {
   return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower);
 }
 
+function calculateWeightedMedian(
+  comparables: Array<{ adjustedPrice: number; similarityScore: number }>,
+): number {
+  const sorted = [...comparables].sort(
+    (a, b) => a.adjustedPrice - b.adjustedPrice,
+  );
+  const totalWeight = sorted.reduce((sum, c) => sum + c.similarityScore, 0);
+  const halfWeight = totalWeight / 2;
+
+  let cumulativeWeight = 0;
+  for (let i = 0; i < sorted.length; i++) {
+    cumulativeWeight += sorted[i].similarityScore;
+    if (cumulativeWeight >= halfWeight) {
+      if (
+        cumulativeWeight === halfWeight &&
+        i < sorted.length - 1
+      ) {
+        return Math.round(
+          (sorted[i].adjustedPrice + sorted[i + 1].adjustedPrice) / 2,
+        );
+      }
+      return Math.round(sorted[i].adjustedPrice);
+    }
+  }
+  return Math.round(sorted[Math.floor(sorted.length / 2)].adjustedPrice);
+}
+
 export async function estimatePropertyValue(
   suburb: string,
   lotSize: number,
+  targetBedrooms?: number,
+  targetBathrooms?: number,
 ): Promise<PropertyValuationResult> {
-  const listings = await scrapeListings({ suburb });
+  const listings = await scrapeListings({ suburb, channel: "sold" });
 
-  const comparables: Array<{
+  console.log(
+    `💰 Sold comps: fetched ${listings.length} sold listings for ${suburb}`,
+  );
+
+  const rawComparables: Array<{
     address: string;
     price: number;
     landSize: number;
     pricePerSqm: number;
+    bedrooms: number;
+    bathrooms: number;
+    parking: number;
+    propertyType: string;
   }> = [];
 
   for (const listing of listings) {
@@ -412,51 +459,183 @@ export async function estimatePropertyValue(
     }
     if (landSizeNum < 50) continue;
 
-    comparables.push({
+    rawComparables.push({
       address: listing.address,
       price,
       landSize: landSizeNum,
       pricePerSqm: Math.round(price / landSizeNum),
+      bedrooms: listing.bedrooms || 0,
+      bathrooms: listing.bathrooms || 0,
+      parking: listing.parking || 0,
+      propertyType: listing.propertyType,
     });
   }
 
-  if (comparables.length === 0) {
+  if (rawComparables.length === 0) {
     return {
       estimatedValue: { low: 0, mid: 0, high: 0 },
       pricePerSqm: { low: 0, median: 0, high: 0 },
       comparableCount: 0,
       comparables: [],
       suburb,
+      confidence: "None",
+      confidenceScore: 0,
+      channel: "sold",
     };
   }
 
-  const ppsqmValues = comparables
-    .map((c) => c.pricePerSqm)
+  const LAND_VALUE_PER_SQM = 350;
+
+  const adjustedComparables = rawComparables.map((comp) => {
+    let adjustedPrice = comp.price;
+    let similarityScore = 100;
+
+    if (targetBedrooms && comp.bedrooms) {
+      const bedroomDiff = (targetBedrooms || 0) - comp.bedrooms;
+      if (bedroomDiff !== 0) {
+        adjustedPrice += adjustedPrice * bedroomDiff * 0.08;
+        similarityScore -= Math.abs(bedroomDiff) * 25;
+      } else {
+        similarityScore += 30;
+      }
+    }
+
+    if (targetBathrooms && comp.bathrooms) {
+      const bathroomDiff = (targetBathrooms || 0) - comp.bathrooms;
+      if (bathroomDiff !== 0) {
+        adjustedPrice += adjustedPrice * bathroomDiff * 0.05;
+        similarityScore -= Math.abs(bathroomDiff) * 5;
+      }
+    }
+
+    if (comp.landSize && lotSize) {
+      const landDiff = lotSize - comp.landSize;
+      adjustedPrice += landDiff * LAND_VALUE_PER_SQM;
+
+      const landDiffPercent = Math.abs(landDiff) / lotSize;
+      if (landDiffPercent > 0.5) {
+        similarityScore -= 40;
+      } else if (landDiffPercent > 0.3) {
+        similarityScore -= 25;
+      } else if (landDiffPercent > 0.15) {
+        similarityScore -= 15;
+      } else {
+        similarityScore -= landDiffPercent * 50;
+      }
+
+      if (landDiffPercent <= 0.1) {
+        similarityScore += 15;
+      }
+    }
+
+    similarityScore = Math.max(0, Math.min(170, similarityScore));
+
+    if (isNaN(adjustedPrice) || adjustedPrice <= 0) {
+      adjustedPrice = comp.price;
+      similarityScore = 50;
+    }
+
+    return {
+      ...comp,
+      adjustedPrice: Math.round(adjustedPrice),
+      similarityScore: Math.round(similarityScore),
+    };
+  });
+
+  const validComparables = adjustedComparables.filter(
+    (c) =>
+      !isNaN(c.adjustedPrice) &&
+      !isNaN(c.similarityScore) &&
+      c.adjustedPrice > 0 &&
+      c.similarityScore >= 0,
+  );
+
+  validComparables.sort((a, b) => b.similarityScore - a.similarityScore);
+
+  const topComparables = validComparables.slice(
+    0,
+    Math.min(15, validComparables.length),
+  );
+
+  const estimatedValue = calculateWeightedMedian(topComparables);
+
+  const countScore = Math.min(topComparables.length / 15, 1.0);
+
+  const avgSimilarity =
+    topComparables.reduce((sum, c) => sum + c.similarityScore, 0) /
+    topComparables.length;
+  const similarityScoreNorm = Math.min(avgSimilarity / 140, 1.0);
+
+  const prices = topComparables.map((c) => c.adjustedPrice);
+  const avgPrice =
+    prices.reduce((sum, p) => sum + p, 0) / prices.length;
+  const variance =
+    prices.reduce((sum, p) => sum + Math.pow(p - avgPrice, 2), 0) /
+    prices.length;
+  const stdDev = Math.sqrt(variance);
+  const coefficientOfVariation = stdDev / avgPrice;
+  const consistencyScore = Math.max(
+    0,
+    1 - coefficientOfVariation / 0.15,
+  );
+
+  const confidenceScoreValue =
+    countScore * 0.3 +
+    similarityScoreNorm * 0.4 +
+    consistencyScore * 0.3;
+
+  let confidenceLevel: string;
+  let confidencePercent: number;
+  if (confidenceScoreValue >= 0.8) {
+    confidenceLevel = "Very High";
+    confidencePercent = 4;
+  } else if (confidenceScoreValue >= 0.65) {
+    confidenceLevel = "High";
+    confidencePercent = 6;
+  } else if (confidenceScoreValue >= 0.5) {
+    confidenceLevel = "Medium";
+    confidencePercent = 8;
+  } else if (confidenceScoreValue >= 0.35) {
+    confidenceLevel = "Low";
+    confidencePercent = 12;
+  } else {
+    confidenceLevel = "Very Low";
+    confidencePercent = 15;
+  }
+
+  const confidenceRange = Math.round(
+    estimatedValue * (confidencePercent / 100),
+  );
+
+  const ppsqmValues = topComparables
+    .map((c) => c.adjustedPrice / lotSize)
     .sort((a, b) => a - b);
 
-  const low = percentile(ppsqmValues, 15);
-  const median = percentile(ppsqmValues, 50);
-  const high = percentile(ppsqmValues, 85);
+  const ppsqmLow = Math.round(percentile(ppsqmValues, 15));
+  const ppsqmMedian = Math.round(percentile(ppsqmValues, 50));
+  const ppsqmHigh = Math.round(percentile(ppsqmValues, 85));
 
-  comparables.sort(
-    (a, b) =>
-      Math.abs(a.landSize - lotSize) - Math.abs(b.landSize - lotSize),
+  console.log(
+    `💰 Valuation result: ${confidenceLevel} confidence (${(confidenceScoreValue * 100).toFixed(0)}%), estimate $${estimatedValue}, ${topComparables.length} comps`,
   );
 
   return {
     estimatedValue: {
-      low: Math.round(low * lotSize),
-      mid: Math.round(median * lotSize),
-      high: Math.round(high * lotSize),
+      low: estimatedValue - confidenceRange,
+      mid: estimatedValue,
+      high: estimatedValue + confidenceRange,
     },
     pricePerSqm: {
-      low: Math.round(low),
-      median: Math.round(median),
-      high: Math.round(high),
+      low: ppsqmLow,
+      median: ppsqmMedian,
+      high: ppsqmHigh,
     },
-    comparableCount: comparables.length,
-    comparables: comparables.slice(0, 10),
+    comparableCount: topComparables.length,
+    comparables: topComparables.slice(0, 10),
     suburb,
+    confidence: confidenceLevel,
+    confidenceScore: Math.round(confidenceScoreValue * 100),
+    channel: "sold",
   };
 }
 

@@ -23,7 +23,12 @@ interface SearchQuery {
  */
 export const handlePropertyValuation: RequestHandler = async (req, res) => {
   try {
-    const { suburb, lotSize } = req.query as { suburb?: string; lotSize?: string };
+    const { suburb, lotSize, bedrooms, bathrooms } = req.query as {
+      suburb?: string;
+      lotSize?: string;
+      bedrooms?: string;
+      bathrooms?: string;
+    };
 
     if (!suburb || !lotSize) {
       return res.status(400).json({
@@ -40,11 +45,19 @@ export const handlePropertyValuation: RequestHandler = async (req, res) => {
       });
     }
 
-    console.log(`💰 Estimating property value: ${suburb}, ${lotSizeNum}m²`);
+    const bedroomsNum = bedrooms ? parseInt(bedrooms) : undefined;
+    const bathroomsNum = bathrooms ? parseInt(bathrooms) : undefined;
 
-    const result = await estimatePropertyValue(suburb.toString(), lotSizeNum);
+    console.log(`💰 Estimating property value: ${suburb}, ${lotSizeNum}m², ${bedroomsNum || '?'} bed, ${bathroomsNum || '?'} bath`);
 
-    console.log(`💰 Valuation: ${result.comparableCount} comparables, median $${result.pricePerSqm.median}/m²`);
+    const result = await estimatePropertyValue(
+      suburb.toString(),
+      lotSizeNum,
+      bedroomsNum,
+      bathroomsNum,
+    );
+
+    console.log(`💰 Valuation: ${result.comparableCount} comps, ${result.confidence} confidence, estimate $${result.estimatedValue.mid}`);
 
     res.json(result);
   } catch (error) {

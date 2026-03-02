@@ -29,7 +29,7 @@ A full-stack geospatial real estate and property analysis application focused on
 ## Layout
 - **Left sidebar** (350px): Property details, listings tabs — toggle with chevron
 - **Right sidebar** (280px): Map Layers + Analysis Tools — toggle with chevron
-- **Floating panels**: Lot Yield, Feasibility Study, Setback Analysis open as draggable overlays (DraggablePanel)
+- **Floating panels**: Lot Yield, Feasibility Study, Setback Analysis, Valuation Estimate open as draggable overlays (DraggablePanel)
 
 ## Key Configuration
 - Vite dev server runs on port 5000 (configured for Replit webview)
@@ -45,12 +45,16 @@ A full-stack geospatial real estate and property analysis application focused on
 - Welcome email endpoint requires JWT authentication
 - TLS config uses minimum TLSv1.2 (no insecure fallbacks)
 
-## Property Valuation API (backend only)
-- **Server**: `estimatePropertyValue()` in `server/services/realEstateScraperService.ts` — percentile-based price-per-sqm calculation
-- **Endpoint**: `GET /api/listings/estimate?suburb=X&lotSize=Y` in `server/routes/listings.ts`
-- **Client service**: `client/lib/valuation-service.ts` — `fetchPropertyValuation(suburb, lotSize)` (not currently wired to UI)
-- **Zyla API**: Australian Property Insights API (ID 7297), endpoint 11581 (Get Properties List). `ZYLA_API_KEY` secret required.
-- **Status**: Backend endpoint works; UI integration removed pending redesign.
+## Valuation Estimate (Analysis Tool)
+- **Architecture**: DraggablePanel in right sidebar, same pattern as Lot Yield/Feasibility/Setback tools
+- **Button**: `ValuationEstimateButton.tsx` — emerald-themed, in MainToolbar under Analysis Tools
+- **Panel**: `ValuationEstimatePanel.tsx` — shows estimated value, confidence score, price/m², expandable comparable sales
+- **Backend**: `estimatePropertyValue()` in `server/services/realEstateScraperService.ts` — weighted-median with similarity scoring, uses `channel: 'sold'` for sold comps
+- **Endpoint**: `GET /api/listings/estimate?suburb=X&lotSize=Y&bedrooms=N&bathrooms=N`
+- **Client service**: `client/lib/valuation-service.ts` — `fetchPropertyValuation(suburb, lotSize)`
+- **Zyla API**: Australian Property Insights API (ID 7297), endpoint 11581, `channel: 'sold'` for sold listings. `ZYLA_API_KEY` secret required.
+- **Valuation logic**: Adapted from Chrome extension — similarity scoring (land size, bedrooms, bathrooms), land value adjustments ($350/m²), weighted median, confidence levels (Very High/High/Medium/Low/Very Low)
+- **Status**: Fully operational as DraggablePanel analysis tool
 
 ## Types
 - `shared/types.ts` defines `SelectedParcel`, `PropertyData`, `CadastralInfo`, `EsriGeometry`, `PropertyValuation`, `ComparableListing` — used across 14+ components

@@ -4,11 +4,20 @@ import { devLog } from "./logger";
 export async function fetchPropertyValuation(
   suburb: string,
   lotSize: number,
+  bedrooms?: number,
+  bathrooms?: number,
 ): Promise<PropertyValuation> {
   const params = new URLSearchParams({
     suburb,
     lotSize: lotSize.toString(),
   });
+
+  if (bedrooms !== undefined && bedrooms > 0) {
+    params.set("bedrooms", bedrooms.toString());
+  }
+  if (bathrooms !== undefined && bathrooms > 0) {
+    params.set("bathrooms", bathrooms.toString());
+  }
 
   devLog.log(`💰 Fetching property valuation for ${suburb}, ${lotSize}m²`);
 

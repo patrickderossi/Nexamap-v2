@@ -9,6 +9,7 @@ import { LotYieldButton } from "./LotYieldButton";
 import { ExportDwgButton } from "./ExportDwgButton";
 import { FeasibilityStudyButton } from "./FeasibilityStudyButton";
 import { SetbackAnalysisButton } from "./SetbackAnalysisButton";
+import { ValuationEstimateButton } from "./ValuationEstimateButton";
 import { FeedbackModal, FeedbackButton } from "./FeedbackModal";
 import type { SelectedParcel } from "../../shared/types";
 
@@ -20,6 +21,8 @@ interface MainToolbarProps {
   onFeasibilityStudyToggle?: () => void;
   showSetbackAnalysis?: boolean;
   onSetbackAnalysisToggle?: () => void;
+  showValuationEstimate?: boolean;
+  onValuationEstimateToggle?: () => void;
   disabled?: boolean;
   subdivisionActive?: boolean;
 }
@@ -32,6 +35,8 @@ function MainToolbarComponent({
   onFeasibilityStudyToggle,
   showSetbackAnalysis = false,
   onSetbackAnalysisToggle,
+  showValuationEstimate = false,
+  onValuationEstimateToggle,
   disabled = false,
   subdivisionActive = false,
 }: MainToolbarProps) {
@@ -43,6 +48,15 @@ function MainToolbarComponent({
         <div className="text-xs text-gray-500 font-medium text-center mb-1 border-b border-gray-100 pb-2">
           Analysis Tools
         </div>
+
+        {/* Valuation Estimate */}
+        <ValuationEstimateButton
+          selectedParcel={selectedParcel}
+          disabled={disabled}
+          active={showValuationEstimate}
+          onClick={onValuationEstimateToggle}
+          className="w-full"
+        />
 
         {/* Feasibility Study Button */}
         <FeasibilityStudyButton

@@ -46,6 +46,12 @@ export interface ComparableListing {
   price: number;
   landSize: number;
   pricePerSqm: number;
+  bedrooms?: number;
+  bathrooms?: number;
+  parking?: number;
+  propertyType?: string;
+  adjustedPrice?: number;
+  similarityScore?: number;
 }
 
 export interface PropertyValuation {
@@ -54,4 +60,7 @@ export interface PropertyValuation {
   comparableCount: number;
   comparables: ComparableListing[];
   suburb: string;
+  confidence?: string;
+  confidenceScore?: number;
+  channel?: string;
 }
