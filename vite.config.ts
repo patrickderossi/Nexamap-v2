@@ -9,6 +9,9 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 5000,
     allowedHosts: true,
+    watch: {
+      ignored: ["**/node_modules/**", "**/.local/**", "**/.git/**"],
+    },
     fs: {
       allow: ["./client", "./shared", "./node_modules"],
       deny: [".env", ".env.*", "*.{crt,pem}", "**/.git/**", "server/**"],
