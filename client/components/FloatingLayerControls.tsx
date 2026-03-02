@@ -89,13 +89,8 @@ function FloatingLayerControlsComponent({
   );
 
   return (
-    <div className="absolute top-20 right-4 z-[1002]">
+    <div>
       <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-        {/* Header - Always Visible */}
-        <div className="flex items-center space-x-2 p-3 border-b border-gray-200">
-          <Layers className="w-4 h-4 text-nexamap-500" />
-          <span className="font-medium text-gray-900 text-sm">Map Layers</span>
-        </div>
 
         {/* Base Layer Switcher */}
         <div className="p-3 border-b border-gray-200 bg-blue-50">

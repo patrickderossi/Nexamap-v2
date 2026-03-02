@@ -38,10 +38,7 @@ function MainToolbarComponent({
 
   return (
     <TooltipProvider>
-      <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 flex flex-col gap-2 backdrop-blur-sm bg-white/95 min-w-[200px]">
-        <div className="text-xs text-gray-500 font-medium text-center mb-1 border-b border-gray-100 pb-2">
-          Analysis Tools
-        </div>
+      <div className="p-3 flex flex-col gap-2 min-w-[200px]">
 
         {/* Feasibility Study Button */}
         <FeasibilityStudyButton

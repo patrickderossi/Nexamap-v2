@@ -13,8 +13,6 @@ import {
   Zap,
   Flame,
   Shield,
-  ChevronLeft,
-  ChevronRight,
   Search,
 } from "lucide-react";
 import { LeafletMap } from "./LeafletMap";
@@ -105,6 +103,7 @@ export function MapFirstLayout({
   loading,
 }: MapFirstLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarMinimized, setSidebarMinimized] = useState(false);
   const [subdivisionMode, setSubdivisionMode] = useState<SubdivisionMode>({
     active: false,
     drawing: false,
@@ -257,10 +256,6 @@ export function MapFirstLayout({
   const handleSetbackAnalysisToggle = useCallback(() => {
     setShowSetbackAnalysis(!showSetbackAnalysis);
   }, [showSetbackAnalysis]);
-
-  const handleSidebarToggle = useCallback(() => {
-    setSidebarOpen(!sidebarOpen);
-  }, [sidebarOpen]);
 
   const handleBaseLayerChange = useCallback((layer: BaseLayerType) => {
     setBaseLayer(layer);
@@ -480,6 +475,7 @@ export function MapFirstLayout({
             initialX={window.innerWidth - 400}
             initialY={80}
             className="w-80"
+            onClose={() => setShowYieldEstimator(false)}
           >
             <Suspense
               fallback={
@@ -506,6 +502,7 @@ export function MapFirstLayout({
             initialX={50}
             initialY={80}
             className="w-fit max-w-[95vw]"
+            onClose={() => setShowFeasibilityStudy(false)}
           >
             <Suspense
               fallback={
@@ -531,6 +528,7 @@ export function MapFirstLayout({
             initialX={window.innerWidth - 450}
             initialY={120}
             className="w-96"
+            onClose={() => setShowSetbackAnalysis(false)}
           >
             <Suspense
               fallback={
@@ -550,18 +548,25 @@ export function MapFirstLayout({
         )}
 
         {/* Main Analysis Toolbar - Right side, visible when property selected and not in subdivision mode */}
-        <div className="absolute bottom-6 right-6 z-[1000]">
-          <MainToolbar
-            selectedParcel={selectedParcel}
-            showYieldEstimator={showYieldEstimator}
-            onYieldEstimatorToggle={handleYieldEstimatorToggle}
-            showFeasibilityStudy={showFeasibilityStudy}
-            onFeasibilityStudyToggle={handleFeasibilityStudyToggle}
-            showSetbackAnalysis={showSetbackAnalysis}
-            onSetbackAnalysisToggle={handleSetbackAnalysisToggle}
-            subdivisionActive={subdivisionMode.active}
-          />
-        </div>
+        {selectedParcel && !subdivisionMode.active && (
+          <DraggablePanel
+            title="Analysis Tools"
+            initialX={window.innerWidth - 240}
+            initialY={window.innerHeight - 340}
+            minimizable={true}
+          >
+            <MainToolbar
+              selectedParcel={selectedParcel}
+              showYieldEstimator={showYieldEstimator}
+              onYieldEstimatorToggle={handleYieldEstimatorToggle}
+              showFeasibilityStudy={showFeasibilityStudy}
+              onFeasibilityStudyToggle={handleFeasibilityStudyToggle}
+              showSetbackAnalysis={showSetbackAnalysis}
+              onSetbackAnalysisToggle={handleSetbackAnalysisToggle}
+              subdivisionActive={subdivisionMode.active}
+            />
+          </DraggablePanel>
+        )}
 
         {/* Subdivision Toolbar - Bottom center, only for subdivision tools */}
         {(selectedParcel || subdivisionMode.active) && (
@@ -583,15 +588,22 @@ export function MapFirstLayout({
         )}
 
         {/* Floating Layer Controls */}
-        <FloatingLayerControls
-          layers={layers}
-          onLayersChange={setLayers}
-          propertyControls={propertyControls}
-          onPropertyControlsChange={setPropertyControls}
-          hasSelectedProperty={!!address}
-          baseLayer={baseLayer}
-          onBaseLayerChange={handleBaseLayerChange}
-        />
+        <DraggablePanel
+          title="Map Layers"
+          initialX={window.innerWidth - 290}
+          initialY={80}
+          minimizable={true}
+        >
+          <FloatingLayerControls
+            layers={layers}
+            onLayersChange={setLayers}
+            propertyControls={propertyControls}
+            onPropertyControlsChange={setPropertyControls}
+            hasSelectedProperty={!!address}
+            baseLayer={baseLayer}
+            onBaseLayerChange={handleBaseLayerChange}
+          />
+        </DraggablePanel>
 
         {/* Subdivision Notification */}
         <SubdivisionNotification
@@ -604,59 +616,46 @@ export function MapFirstLayout({
         />
       </div>
 
-      {/* Left Sidebar Panel */}
-      <div
-        className={`absolute top-0 left-0 h-full bg-white shadow-xl border-r border-gray-200 transition-transform duration-300 z-[1000] flex flex-col ${
-          sidebarOpen && !subdivisionMode.active
-            ? "translate-x-0"
-            : "-translate-x-full"
-        }`}
-        style={{ width: "350px" }}
-      >
-        {/* Sidebar Header */}
-        <div className="bg-white border-b border-gray-200 p-4 flex-shrink-0">
-          <div className="flex items-center justify-between mb-3">
-            <img
-              src="https://cdn.builder.io/api/v1/image/assets%2F0df748b9b86d4bc5af1be6fda4f6f0d0%2F9fbd34283535421db2163a3b996c4e11?format=webp&width=800"
-              alt="Nexamap Logo"
-              className="h-10 w-auto object-contain"
-            />
-          </div>
-          <div className="text-center">
-            <p className="text-gray-600 text-sm">
-              {address || "Search for a property"}
-            </p>
-          </div>
-        </div>
-
-        {/* Sidebar Content - Tabbed Interface - Flex-1 to take remaining space */}
-        <div className="flex-1 w-full overflow-hidden">
-          <PropertyInfoTabs
-            selectedParcel={selectedParcel}
-            address={address}
-            data={data}
-            onSearch={handleListingsSearch}
-            listings={listings}
-            listingsLoading={listingsLoading}
-            selectedListingId={selectedListing?.id}
-            onSelectListing={setSelectedListing}
-          />
-        </div>
-      </div>
-
-      {/* Sidebar Toggle Button */}
+      {/* Property Details Panel */}
       {!subdivisionMode.active && (
-        <button
-          onClick={handleSidebarToggle}
-          className="absolute top-1/2 transform -translate-y-1/2 bg-white border border-gray-200 rounded-r-lg p-2 shadow-lg hover:bg-gray-50 z-[1001] transition-all duration-300"
-          style={{ left: sidebarOpen ? "350px" : "0px" }}
+        <DraggablePanel
+          title={address || "Property Details"}
+          initialX={10}
+          initialY={80}
+          minimizable={true}
+          onClose={() => setSidebarOpen(false)}
+          className="w-[350px]"
         >
-          {sidebarOpen ? (
-            <ChevronLeft className="w-5 h-5 text-gray-600" />
-          ) : (
-            <ChevronRight className="w-5 h-5 text-gray-600" />
-          )}
-        </button>
+          <div className="flex flex-col" style={{ maxHeight: 'calc(80vh - 40px)' }}>
+            <div className="bg-white border-b border-gray-200 p-3 flex-shrink-0">
+              <div className="flex items-center justify-center">
+                <img
+                  src="https://cdn.builder.io/api/v1/image/assets%2F0df748b9b86d4bc5af1be6fda4f6f0d0%2F9fbd34283535421db2163a3b996c4e11?format=webp&width=800"
+                  alt="Nexamap Logo"
+                  className="h-8 w-auto object-contain"
+                />
+              </div>
+              <div className="text-center mt-1">
+                <p className="text-gray-600 text-xs">
+                  {address || "Search for a property to see detailed analysis"}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex-1 w-full overflow-auto">
+              <PropertyInfoTabs
+                selectedParcel={selectedParcel}
+                address={address}
+                data={data}
+                onSearch={handleListingsSearch}
+                listings={listings}
+                listingsLoading={listingsLoading}
+                selectedListingId={selectedListing?.id}
+                onSelectListing={setSelectedListing}
+              />
+            </div>
+          </div>
+        </DraggablePanel>
       )}
 
       {/* Loading Overlay */}
