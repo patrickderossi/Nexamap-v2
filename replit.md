@@ -45,14 +45,12 @@ A full-stack geospatial real estate and property analysis application focused on
 - Welcome email endpoint requires JWT authentication
 - TLS config uses minimum TLSv1.2 (no insecure fallbacks)
 
-## Property Valuation Feature
+## Property Valuation API (backend only)
 - **Server**: `estimatePropertyValue()` in `server/services/realEstateScraperService.ts` — percentile-based price-per-sqm calculation
 - **Endpoint**: `GET /api/listings/estimate?suburb=X&lotSize=Y` in `server/routes/listings.ts`
-- **Client service**: `client/lib/valuation-service.ts` — `fetchPropertyValuation(suburb, lotSize)`
-- **UI**: Green card in `PropertyInfoPanel.tsx` with value range, price/m², expandable comparables, disclaimer
-- **Integration**: `MapFirstLayout.tsx` `handlePropertySelect` fires valuation fetch after property data loads (non-blocking)
+- **Client service**: `client/lib/valuation-service.ts` — `fetchPropertyValuation(suburb, lotSize)` (not currently wired to UI)
 - **Zyla API**: Australian Property Insights API (ID 7297), endpoint 11581 (Get Properties List). `ZYLA_API_KEY` secret required.
-- **Status**: Fully operational. Gracefully absent when API unavailable.
+- **Status**: Backend endpoint works; UI integration removed pending redesign.
 
 ## Types
 - `shared/types.ts` defines `SelectedParcel`, `PropertyData`, `CadastralInfo`, `EsriGeometry`, `PropertyValuation`, `ComparableListing` — used across 14+ components

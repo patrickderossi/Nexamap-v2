@@ -41,8 +41,7 @@ import {
 import { toast } from "@/hooks/use-toast";
 import L from "leaflet";
 import { devLog } from "@/lib/logger";
-import { fetchPropertyValuation } from "@/lib/valuation-service";
-import type { SelectedParcel, PropertyData, PropertyValuation } from "../../shared/types";
+import type { SelectedParcel, PropertyData } from "../../shared/types";
 
 // Lazy load heavy analysis components
 const SubdivisionManager = lazy(() =>
@@ -102,10 +101,6 @@ export function MapFirstLayout({
   const [showYieldEstimator, setShowYieldEstimator] = useState(false);
   const [showFeasibilityStudy, setShowFeasibilityStudy] = useState(false);
   const [showSetbackAnalysis, setShowSetbackAnalysis] = useState(false);
-
-  const valuationRequestId = useRef(0);
-  const [valuation, setValuation] = useState<PropertyValuation | null>(null);
-  const [valuationLoading, setValuationLoading] = useState(false);
 
   // Real estate listings state
   const [listings, setListings] = useState<Listing[]>([]);
@@ -213,36 +208,6 @@ export function MapFirstLayout({
       setLayers((prev) => ({ ...prev, placesAddresses: true }));
       setSidebarOpen(true);
 
-      setValuation(null);
-      setValuationLoading(false);
-      const currentRequestId = ++valuationRequestId.current;
-      const suburb = propertyData?.cadastralInfo?.locality;
-      const lotSizeStr = propertyData?.lotSize;
-      devLog.log("💰 Valuation check:", { suburb, lotSizeStr, hasCadastral: !!propertyData?.cadastralInfo });
-      if (!suburb || !lotSizeStr) {
-        devLog.log("💰 Skipping valuation - missing data:", { suburb, lotSizeStr });
-      }
-      if (suburb && lotSizeStr) {
-        const lotSizeMatch = lotSizeStr.match(/([\d,]+(?:\.\d+)?)/);
-        if (lotSizeMatch) {
-          const lotSize = parseFloat(lotSizeMatch[1].replace(/,/g, ""));
-          if (lotSize > 0) {
-            setValuationLoading(true);
-            fetchPropertyValuation(suburb, lotSize)
-              .then((result) => {
-                if (valuationRequestId.current === currentRequestId) {
-                  setValuation(result);
-                }
-              })
-              .catch((err) => devLog.warn("Valuation fetch failed:", err))
-              .finally(() => {
-                if (valuationRequestId.current === currentRequestId) {
-                  setValuationLoading(false);
-                }
-              });
-          }
-        }
-      }
     },
     [onPropertySelect],
   );
@@ -633,8 +598,6 @@ export function MapFirstLayout({
             listingsLoading={listingsLoading}
             selectedListingId={selectedListing?.id}
             onSelectListing={setSelectedListing}
-            valuation={valuation}
-            valuationLoading={valuationLoading}
           />
         </div>
       </div>
