@@ -424,6 +424,44 @@ function calculateWeightedMedian(
   return Math.round(sorted[Math.floor(sorted.length / 2)].adjustedPrice);
 }
 
+function getLandValuePerSqm(suburb: string): number {
+  const s = suburb.toLowerCase().trim();
+
+  const innerSuburbs = [
+    "south perth", "subiaco", "leederville", "mount lawley", "nedlands",
+    "claremont", "cottesloe", "mosman park", "peppermint grove", "north perth",
+    "highgate", "west perth", "east perth", "perth", "northbridge",
+    "victoria park", "como", "applecross", "ardross", "mt lawley", "maylands",
+  ];
+
+  const midTierSuburbs = [
+    "floreat", "wembley", "cambridge", "osborne park", "scarborough",
+    "doubleview", "churchlands", "karrinyup", "stirling", "joondanna",
+    "dianella", "morley", "bayswater", "bassendean", "embleton",
+    "willetton", "riverton", "shelley", "rossmoyne", "bateman",
+    "bull creek", "leeming", "kardinya", "murdoch", "winthrop",
+    "booragoon", "melville", "bicton", "palmyra", "hilton",
+    "white gum valley", "beaconsfield", "fremantle", "hamilton hill",
+    "coolbellup", "spearwood", "coogee", "south beach", "north beach",
+    "watermans bay", "sorrento", "hillarys", "padbury", "craigie",
+    "beldon", "greenwood", "duncraig", "warwick", "city beach",
+    "trigg", "joondalup", "south fremantle",
+  ];
+
+  if (innerSuburbs.includes(s)) return 600;
+  if (midTierSuburbs.includes(s)) return 400;
+  return 250;
+}
+
+function medianOfArray(arr: number[]): number {
+  if (arr.length === 0) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0
+    ? sorted[mid]
+    : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+}
+
 export async function estimatePropertyValue(
   suburb: string,
   lotSize: number,
@@ -484,32 +522,50 @@ export async function estimatePropertyValue(
     };
   }
 
-  const LAND_VALUE_PER_SQM = 350;
+  const LAND_VALUE_PER_SQM = getLandValuePerSqm(suburb);
+  console.log(`💰 Using land value rate: $${LAND_VALUE_PER_SQM}/m² for ${suburb}`);
+
+  const effectiveBedrooms = targetBedrooms ||
+    medianOfArray(rawComparables.filter((c) => c.bedrooms > 0).map((c) => c.bedrooms));
+  const effectiveBathrooms = targetBathrooms ||
+    medianOfArray(rawComparables.filter((c) => c.bathrooms > 0).map((c) => c.bathrooms));
+
+  console.log(
+    `💰 Target profile: ${effectiveBedrooms} bed, ${effectiveBathrooms} bath, ${lotSize}m² (beds/baths ${targetBedrooms ? "from user" : "inferred from median"})`,
+  );
 
   const adjustedComparables = rawComparables.map((comp) => {
     let adjustedPrice = comp.price;
     let similarityScore = 100;
 
-    if (targetBedrooms && comp.bedrooms) {
-      const bedroomDiff = (targetBedrooms || 0) - comp.bedrooms;
-      if (bedroomDiff !== 0) {
-        adjustedPrice += adjustedPrice * bedroomDiff * 0.08;
-        similarityScore -= Math.abs(bedroomDiff) * 25;
-      } else {
-        similarityScore += 30;
-      }
+    const compBeds = comp.bedrooms || 0;
+    const compBaths = comp.bathrooms || 0;
+    const compLand = comp.landSize || 0;
+
+    const bedroomDiff = effectiveBedrooms - compBeds;
+    if (compBeds > 0 && bedroomDiff !== 0) {
+      const BEDROOM_PERCENT = 0.08;
+      const bedroomAdjustment = adjustedPrice * bedroomDiff * BEDROOM_PERCENT;
+      adjustedPrice += bedroomAdjustment;
+      similarityScore -= Math.abs(bedroomDiff) * 30;
     }
 
-    if (targetBathrooms && comp.bathrooms) {
-      const bathroomDiff = (targetBathrooms || 0) - comp.bathrooms;
-      if (bathroomDiff !== 0) {
-        adjustedPrice += adjustedPrice * bathroomDiff * 0.05;
-        similarityScore -= Math.abs(bathroomDiff) * 5;
-      }
+    const bathroomDiff = effectiveBathrooms - compBaths;
+    if (compBaths > 0 && bathroomDiff !== 0) {
+      const BATHROOM_PERCENT = 0.05;
+      const bathroomAdjustment = adjustedPrice * bathroomDiff * BATHROOM_PERCENT;
+      adjustedPrice += bathroomAdjustment;
+      similarityScore -= Math.abs(bathroomDiff) * 5;
     }
 
-    if (comp.landSize && lotSize) {
-      const landDiff = lotSize - comp.landSize;
+    if (compBeds > 0 && bedroomDiff === 0 && compBaths > 0 && bathroomDiff === 0) {
+      similarityScore += 50;
+    } else if (compBeds > 0 && bedroomDiff === 0) {
+      similarityScore += 30;
+    }
+
+    if (compLand > 0 && lotSize > 0) {
+      const landDiff = lotSize - compLand;
       adjustedPrice += landDiff * LAND_VALUE_PER_SQM;
 
       const landDiffPercent = Math.abs(landDiff) / lotSize;
@@ -520,12 +576,19 @@ export async function estimatePropertyValue(
       } else if (landDiffPercent > 0.15) {
         similarityScore -= 15;
       } else {
-        similarityScore -= landDiffPercent * 50;
+        similarityScore -= Math.round(landDiffPercent * 50);
       }
 
       if (landDiffPercent <= 0.1) {
         similarityScore += 15;
       }
+    }
+
+    const compParking = comp.parking || 0;
+    if (compParking === 0 && effectiveBedrooms >= 3) {
+      similarityScore -= 10;
+    } else if (compParking >= 2) {
+      similarityScore += 5;
     }
 
     similarityScore = Math.max(0, Math.min(170, similarityScore));
@@ -617,6 +680,9 @@ export async function estimatePropertyValue(
 
   console.log(
     `💰 Valuation result: ${confidenceLevel} confidence (${(confidenceScoreValue * 100).toFixed(0)}%), estimate $${estimatedValue}, ${topComparables.length} comps`,
+  );
+  console.log(
+    `💰 Top 3 comps: ${topComparables.slice(0, 3).map((c) => `${c.address} (${c.bedrooms}bed/${c.bathrooms}bath/${c.landSize}m² sold:$${c.price} adj:$${c.adjustedPrice} sim:${c.similarityScore})`).join(" | ")}`,
   );
 
   return {
