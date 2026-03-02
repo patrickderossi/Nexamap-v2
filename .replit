@@ -31,6 +31,10 @@ waitForPort = 5000
 outputType = "webview"
 
 [[ports]]
+localPort = 3000
+externalPort = 3000
+
+[[ports]]
 localPort = 5000
 externalPort = 80
 
@@ -38,3 +42,4 @@ externalPort = 80
 deploymentTarget = "autoscale"
 run = ["node", "dist/server/node-build.mjs"]
 build = ["npm", "run", "build"]
+publicDir = "dist/public"
