@@ -43,16 +43,11 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import authRoutes from "./routes/auth";
 import emailRoutes from "./routes/email";
-import { handleListingsSearch, handleGetListing } from "./routes/listings";
+import { handleListingsSearch } from "./routes/listings";
 import { optionalAuth } from "./middleware/auth";
 
 export function createServer() {
   const app = express();
-
-  // Add Sentry request handler FIRST (must be before other middleware)
-  if (process.env.SENTRY_DSN) {
-    app.use(Sentry.expressIntegration());
-  }
 
   // Trust proxy for accurate IP addresses behind reverse proxies
   app.set("trust proxy", 1);
@@ -219,17 +214,25 @@ export function createServer() {
       origin: (origin, callback) => {
         if (!origin) return callback(null, true);
 
-        if (
-          origin.includes("builder.io") ||
-          origin.includes("fly.dev") ||
-          origin.includes("localhost") ||
-          origin.includes("127.0.0.1")
-        ) {
+        if (allowedOrigins.includes(origin)) {
           return callback(null, true);
         }
 
-        if (allowedOrigins.includes(origin)) {
-          return callback(null, true);
+        try {
+          const url = new URL(origin);
+          const hostname = url.hostname;
+
+          const isAllowedDomain =
+            hostname.endsWith(".builder.io") ||
+            hostname === "builder.io" ||
+            hostname.endsWith(".fly.dev") ||
+            hostname === "localhost" ||
+            hostname === "127.0.0.1";
+
+          if (isAllowedDomain) {
+            return callback(null, true);
+          }
+        } catch {
         }
 
         if (process.env.NODE_ENV === "production") {
@@ -240,7 +243,9 @@ export function createServer() {
           );
         }
 
-        console.warn(`CORS allowing unknown origin in development: ${origin}`);
+        if (!origin.includes("replit.dev")) {
+          console.warn(`CORS allowing unknown origin in development: ${origin}`);
+        }
         return callback(null, true);
       },
       credentials: true,
@@ -269,7 +274,6 @@ export function createServer() {
 
   // Real estate listings routes
   app.get("/api/listings/search", handleListingsSearch);
-  app.get("/api/listings/:id", handleGetListing);
 
   app.get("/api/ping", (_req, res) => {
     res.json({

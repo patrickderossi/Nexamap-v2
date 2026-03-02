@@ -1,6 +1,7 @@
 import L from "leaflet";
 import { queryPropertyDetails } from "./slip-wa-api";
 import { extractRCode, getZoningRequirements } from "./zoning-requirements";
+import { devLog } from "./logger";
 
 export interface Listing {
   id: string;
@@ -105,7 +106,7 @@ function calculateLotYield(
 
     return { yield: Math.max(1, estimatedYield), rCode: extractedRCode };
   } catch (error) {
-    console.warn("Error calculating lot yield:", error);
+    devLog.warn("Error calculating lot yield:", error);
     return { yield: 0, rCode };
   }
 }
@@ -140,7 +141,7 @@ async function fetchPropertyDataFromSlipWa(coordinates: {
       details: `Lot Size: ${propertyData.lotSize || "Unknown"}, R-Code: ${rCode}`,
     };
   } catch (error) {
-    console.warn("Failed to fetch property details from SLIP WA:", error);
+    devLog.warn("Failed to fetch property details from SLIP WA:", error);
     return null;
   }
 }
@@ -315,7 +316,7 @@ export function addListingsToMap(
   // Add markers for each listing
   listings.forEach((listing) => {
     if (!listing.coordinates) {
-      console.warn(`⚠️ No coordinates for listing: ${listing.address}`);
+      devLog.warn(`⚠️ No coordinates for listing: ${listing.address}`);
       return;
     }
 
@@ -359,11 +360,11 @@ export function addListingsToMap(
   // Add to map
   markerLayer.addTo(map);
 
-  console.log(`✅ Added ${listings.length} listing markers to map`);
+  devLog.log(`✅ Added ${listings.length} listing markers to map`);
 
   // Fetch data in background if colorScheme is 'yield'
   if (backgroundFetch && colorScheme === "yield") {
-    console.log(`📊 Starting background fetch of property yield data...`);
+    devLog.log(`📊 Starting background fetch of property yield data...`);
 
     // Fetch data for each listing
     listings.forEach(async (listing) => {
@@ -386,13 +387,13 @@ export function addListingsToMap(
             marker.setIcon(
               createListingMarkerIcon(listing, "yield", yieldData.yield),
             );
-            console.log(
+            devLog.log(
               `🎨 Updated pin for ${listing.address}: yield=${yieldData.yield}`,
             );
           }
         }
       } catch (error) {
-        console.warn(
+        devLog.warn(
           `⚠️ Failed to fetch yield data for ${listing.address}:`,
           error,
         );

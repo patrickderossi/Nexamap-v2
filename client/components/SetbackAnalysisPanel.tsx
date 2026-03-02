@@ -5,9 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { extractRCode, getZoningRequirements } from '@/lib/zoning-requirements';
 import { getSetbackRequirements, calculateMaxBuildFootprint } from '@/lib/setback-requirements';
+import type { SelectedParcel } from "../../shared/types";
 
 interface SetbackAnalysisProps {
-  selectedParcel?: any;
+  selectedParcel?: SelectedParcel;
   show: boolean;
   onClose: () => void;
 }

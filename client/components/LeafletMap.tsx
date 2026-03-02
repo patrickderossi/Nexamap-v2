@@ -1905,12 +1905,12 @@ export function LeafletMap({
         });
 
         bfpa.on("load", () => {
-          console.log("✅ Bush Fire layer loaded successfully");
+          devLog.log("✅ Bush Fire layer loaded successfully");
         });
 
         bfpa.addTo(map);
         layersRef.current.bushfireAreas = bfpa;
-        console.log("✅ Bush Fire layer added to map");
+        devLog.log("✅ Bush Fire layer added to map");
       } catch (error) {
         console.error("Failed to create bushfire areas layer:", error);
       }
@@ -1949,11 +1949,11 @@ export function LeafletMap({
       });
 
       layer.on("load", () => {
-        console.log("✅ Infrastructure/Watercorp layer loaded");
+        devLog.log("✅ Infrastructure/Watercorp layer loaded");
       });
 
       layersRef.current.infrastructure = layer;
-      console.log("✅ Infrastructure/Watercorp layer added to map");
+      devLog.log("✅ Infrastructure/Watercorp layer added to map");
     } else if (!layers.infrastructure && layersRef.current.infrastructure) {
       try {
         if (map.hasLayer(layersRef.current.infrastructure)) {
@@ -1985,11 +1985,11 @@ export function LeafletMap({
       });
 
       layer.on("load", () => {
-        console.log("✅ Flood Zone layer loaded");
+        devLog.log("✅ Flood Zone layer loaded");
       });
 
       layersRef.current.water = layer;
-      console.log("✅ Flood Zone layer added to map");
+      devLog.log("✅ Flood Zone layer added to map");
     } else if (!layers.water && layersRef.current.water) {
       try {
         if (map.hasLayer(layersRef.current.water)) {
@@ -2021,11 +2021,11 @@ export function LeafletMap({
       });
 
       layer.on("load", () => {
-        console.log("✅ Land Contours layer loaded");
+        devLog.log("✅ Land Contours layer loaded");
       });
 
       layersRef.current.terrain = layer;
-      console.log("✅ Land Contours layer added to map");
+      devLog.log("✅ Land Contours layer added to map");
     } else if (!layers.terrain && layersRef.current.terrain) {
       try {
         if (map.hasLayer(layersRef.current.terrain)) {
@@ -2057,11 +2057,11 @@ export function LeafletMap({
       });
 
       layer.on("load", () => {
-        console.log("✅ Soil Type layer loaded");
+        devLog.log("✅ Soil Type layer loaded");
       });
 
       layersRef.current.soilType = layer;
-      console.log("✅ Soil Type layer added to map");
+      devLog.log("✅ Soil Type layer added to map");
     } else if (!layers.soilType && layersRef.current.soilType) {
       try {
         if (map.hasLayer(layersRef.current.soilType)) {
@@ -2093,11 +2093,11 @@ export function LeafletMap({
       });
 
       layer.on("load", () => {
-        console.log("✅ Health Services layer loaded");
+        devLog.log("✅ Health Services layer loaded");
       });
 
       layersRef.current.health = layer;
-      console.log("✅ Health Services layer added to map");
+      devLog.log("✅ Health Services layer added to map");
     } else if (!layers.health && layersRef.current.health) {
       try {
         if (map.hasLayer(layersRef.current.health)) {
@@ -2129,11 +2129,11 @@ export function LeafletMap({
       });
 
       layer.on("load", () => {
-        console.log("✅ Schools layer loaded");
+        devLog.log("✅ Schools layer loaded");
       });
 
       layersRef.current.schools = layer;
-      console.log("✅ Schools layer added to map");
+      devLog.log("✅ Schools layer added to map");
     } else if (!layers.schools && layersRef.current.schools) {
       try {
         if (map.hasLayer(layersRef.current.schools)) {
@@ -2165,11 +2165,11 @@ export function LeafletMap({
       });
 
       layer.on("load", () => {
-        console.log("✅ Transport layer loaded");
+        devLog.log("✅ Transport layer loaded");
       });
 
       layersRef.current.transport = layer;
-      console.log("✅ Transport layer added to map");
+      devLog.log("✅ Transport layer added to map");
     } else if (!layers.transport && layersRef.current.transport) {
       try {
         if (map.hasLayer(layersRef.current.transport)) {

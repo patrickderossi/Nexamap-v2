@@ -3,6 +3,7 @@ import { Search, MapPin, Building } from "lucide-react";
 import { loadGoogleMapsAPI, isGoogleMapsLoaded } from "@/lib/google-maps";
 import { useDebounce } from "@/hooks/use-debounce";
 import { ListItemSkeleton } from "./LoadingSkeleton";
+import { devLog } from "@/lib/logger";
 
 interface PlaceResult {
   place_id: string;
@@ -58,7 +59,7 @@ export function GooglePlacesAutocomplete({
           }
         })
         .catch(error => {
-          console.error('Failed to load Google Maps API:', error);
+          devLog.warn('Failed to load Google Maps API:', error);
         });
     } else {
       if (window.google && window.google.maps && window.google.maps.places) {

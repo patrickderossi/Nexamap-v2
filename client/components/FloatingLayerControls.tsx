@@ -2,6 +2,7 @@ import React, { useCallback } from "react";
 import { Layers, Map, Globe, Zap } from "lucide-react";
 import { PropertyControls, PropertyControlsState } from "./PropertyControls";
 import { FeedbackModal, FeedbackButton } from "./FeedbackModal";
+import { devLog } from "@/lib/logger";
 
 export type BaseLayerType = "osm" | "satellite";
 
@@ -68,7 +69,7 @@ function FloatingLayerControlsComponent({
 
   const handleLayerToggle = useCallback(
     (layerKey: keyof LayerState) => {
-      console.log(
+      devLog.log(
         `🎛️ Toggling layer: ${layerKey} from ${layers[layerKey]} to ${!layers[layerKey]}`,
       );
       onLayersChange({

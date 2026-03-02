@@ -133,15 +133,13 @@ export function EmailTester() {
           {emailStatus && (
             <div className="text-xs p-2 bg-gray-50 rounded">
               <p>
-                <strong>Status:</strong> {emailStatus.status}
+                <strong>Configured:</strong> {emailStatus.configured ? "Yes" : "No"}
               </p>
               <p>
-                <strong>SMTP Configured:</strong>{" "}
-                {emailStatus.hasSmtp ? "Yes" : "No (using test emails)"}
+                <strong>Service:</strong> {emailStatus.service}
               </p>
               <p>
-                <strong>Checked:</strong>{" "}
-                {new Date(emailStatus.timestamp).toLocaleTimeString()}
+                <strong>From:</strong> {emailStatus.from}
               </p>
             </div>
           )}

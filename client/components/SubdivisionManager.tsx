@@ -10,13 +10,14 @@ import {
 } from "@/lib/polygon-operations";
 import { getZoningRequirements, extractRCode } from "@/lib/zoning-requirements";
 import { toast } from "@/hooks/use-toast";
-import { queryPlanningData } from "@/lib/slip-wa-api";
+import { queryPlanningData, fetchCadastralFeature } from "@/lib/slip-wa-api";
 import { devLog } from "@/lib/logger";
+import type { SelectedParcel } from "../../shared/types";
 
 interface SubdivisionManagerProps {
   map: L.Map | null;
   subdivisionMode: SubdivisionMode;
-  selectedParcel?: any;
+  selectedParcel?: SelectedParcel;
   onModeChange?: (mode: SubdivisionMode) => void;
   onSplitsChange?: (hasActiveSplits: boolean) => void;
   onLotsChange?: (hasGeneratedLots: boolean) => void;
@@ -125,175 +126,123 @@ export function SubdivisionManager({
     const { data: propertyData, coordinates, address } = selectedParcel;
 
     try {
-      // Query Places and Addresses for current cadastral data
-      let response = await fetch(
-        `https://public-services.slip.wa.gov.au/public/rest/services/SLIP_Public_Services/Places_and_Addresses/MapServer/4/query?` +
-          new URLSearchParams({
-            f: "json",
-            returnGeometry: "true",
-            spatialRel: "esriSpatialRelIntersects",
-            geometry: `${coordinates[1]},${coordinates[0]}`,
-            geometryType: "esriGeometryPoint",
-            inSR: "4326",
-            outSR: "4326",
-            outFields:
-              "land_id,road_number_1,road_name,road_type,locality,lot_number",
-            maxRecordCount: "1",
-          }),
-      );
+      const feature = await fetchCadastralFeature({ coordinates });
 
-      let data = await response.json();
+      if (feature && feature.geometry?.rings) {
+        const geoJsonGeometry = {
+          type: "Polygon" as const,
+          coordinates: feature.geometry.rings,
+        };
 
-      // If layer 4 doesn't return results, try layer 3
-      if (!data.features || data.features.length === 0) {
-        response = await fetch(
-          `https://public-services.slip.wa.gov.au/public/rest/services/SLIP_Public_Services/Places_and_Addresses/MapServer/3/query?` +
-            new URLSearchParams({
-              f: "json",
-              returnGeometry: "true",
-              spatialRel: "esriSpatialRelIntersects",
-              geometry: `${coordinates[1]},${coordinates[0]}`,
-              geometryType: "esriGeometryPoint",
-              inSR: "4326",
-              outSR: "4326",
-              outFields:
-                "land_id,road_number_1,road_name,road_type,locality,lot_number",
-              maxRecordCount: "1",
-            }),
+        const area = turf.area({
+          type: "Feature",
+          geometry: geoJsonGeometry,
+          properties: {},
+        });
+
+        const perimeter = turf.length(
+          {
+            type: "Feature",
+            geometry: {
+              type: "LineString",
+              coordinates: feature.geometry.rings[0],
+            },
+            properties: {},
+          },
+          { units: "meters" },
         );
-        data = await response.json();
-      }
 
-      if (data.features && data.features.length > 0) {
-        const feature = data.features[0];
+        devLog.log("🔍 SubdivisionManager propertyData:", propertyData);
 
-        if (feature.geometry && feature.geometry.rings) {
-          // Convert ESRI geometry to GeoJSON
-          const geoJsonGeometry = {
-            type: "Polygon" as const,
-            coordinates: feature.geometry.rings,
-          };
+        let zoning = propertyData?.zoning || propertyData?.rCode || "R30";
+        let rCode = extractRCode(zoning);
 
-          // Calculate lot area using turf
-          const area = turf.area({
-            type: "Feature",
-            geometry: geoJsonGeometry,
-            properties: {},
-          });
-
-          // Calculate perimeter
-          const perimeter = turf.length(
-            {
-              type: "Feature",
-              geometry: {
-                type: "LineString",
-                coordinates: feature.geometry.rings[0],
-              },
-              properties: {},
-            },
-            { units: "meters" },
-          );
-
-          // Get zoning from property data or use default
-          devLog.log("🔍 SubdivisionManager propertyData:", propertyData);
-
-          // Try to get R-Code from different sources
-          let zoning = propertyData?.zoning || propertyData?.rCode || "R30";
-          let rCode = extractRCode(zoning);
-
-          // If the zoning field contains the actual R-Code pattern, extract it properly
-          if (zoning && zoning.match(/^R\d+/)) {
-            rCode = extractRCode(zoning) || zoning;
-          }
-
-          devLog.log("📋 SubdivisionManager zoning input:", zoning);
-          devLog.log("📋 SubdivisionManager extracted rCode:", rCode);
-
-          // If no R-Code found, try to query Planning Layer directly
-          if (!rCode && coordinates) {
-            try {
-              devLog.log(
-                "🔍 No R-Code found, querying Planning Layer directly...",
-              );
-              const planningData = await queryPlanningData({ coordinates });
-              if (planningData.rCode) {
-                zoning = planningData.rCode;
-                rCode = extractRCode(planningData.rCode);
-                devLog.log(
-                  "✅ Got R-Code from direct query:",
-                  planningData.rCode,
-                );
-              }
-            } catch (error) {
-              devLog.warn("❌ Failed to query Planning Layer:", error);
-            }
-          }
-
-          // Get zoning requirements
-          let minLotSize = 300; // Default fallback
-          let maxDwellings = Math.floor(area / minLotSize);
-
-          if (rCode) {
-            const requirements = getZoningRequirements(rCode, "single");
-            if (requirements.length > 0) {
-              const requirement = requirements[0];
-              minLotSize = requirement.minLotArea || requirement.minSiteArea;
-              maxDwellings = Math.floor(area / requirement.avgSiteArea);
-            }
-          }
-
-          const newParentLot: ParentLot = {
-            id: `lot_${feature.attributes.OBJECTID || Date.now()}`,
-            area: Math.round(area),
-            perimeter: Math.round(perimeter),
-            minLotSize,
-            maxDwellings,
-            address:
-              address ||
-              `${coordinates[0].toFixed(6)}, ${coordinates[1].toFixed(6)}`,
-            planNumber:
-              feature.attributes.PLAN_NO ||
-              propertyData?.planNumber ||
-              "Unknown",
-            zoning, // This is the R-Code
-            shire:
-              propertyData?.shire || propertyData?.zoning || "Unknown Shire", // This is the shire/scheme name
-            geometry: geoJsonGeometry,
-          };
-
-          // Clear existing parent lot
-          if (parentLotLayerRef.current) {
-            map.removeLayer(parentLotLayerRef.current);
-          }
-
-          // Add parent lot to map
-          const parentFeature: GeoJSON.Feature = {
-            type: "Feature",
-            geometry: geoJsonGeometry,
-            properties: {},
-          };
-
-          parentLotLayerRef.current = L.geoJSON(parentFeature, {
-            style: {
-              color: "#2563EB",
-              weight: 3,
-              opacity: 1,
-              fillOpacity: 0.1,
-              fillColor: "#2563EB",
-            },
-            // Disable Leaflet simplification for precise boundaries
-            smoothFactor: 0,
-          }).addTo(map);
-
-          setParentLot(newParentLot);
-          setDrawnLines([]);
-          setGeneratedLots([]);
-
-          devLog.log(
-            "✅ Parent lot created from selected parcel:",
-            newParentLot,
-          );
+        if (zoning && zoning.match(/^R\d+/)) {
+          rCode = extractRCode(zoning) || zoning;
         }
+
+        devLog.log("📋 SubdivisionManager zoning input:", zoning);
+        devLog.log("📋 SubdivisionManager extracted rCode:", rCode);
+
+        if (!rCode && coordinates) {
+          try {
+            devLog.log(
+              "🔍 No R-Code found, querying Planning Layer directly...",
+            );
+            const planningData = await queryPlanningData({ coordinates });
+            if (planningData.rCode) {
+              zoning = planningData.rCode;
+              rCode = extractRCode(planningData.rCode);
+              devLog.log(
+                "✅ Got R-Code from direct query:",
+                planningData.rCode,
+              );
+            }
+          } catch (error) {
+            devLog.warn("❌ Failed to query Planning Layer:", error);
+          }
+        }
+
+        let minLotSize = 300;
+        let maxDwellings = Math.floor(area / minLotSize);
+
+        if (rCode) {
+          const requirements = getZoningRequirements(rCode, "single");
+          if (requirements.length > 0) {
+            const requirement = requirements[0];
+            minLotSize = requirement.minLotArea || requirement.minSiteArea;
+            maxDwellings = Math.floor(area / requirement.avgSiteArea);
+          }
+        }
+
+        const newParentLot: ParentLot = {
+          id: `lot_${feature.attributes.OBJECTID || Date.now()}`,
+          area: Math.round(area),
+          perimeter: Math.round(perimeter),
+          minLotSize,
+          maxDwellings,
+          address:
+            address ||
+            `${coordinates[0].toFixed(6)}, ${coordinates[1].toFixed(6)}`,
+          planNumber:
+            feature.attributes.PLAN_NO ||
+            propertyData?.planNumber ||
+            "Unknown",
+          zoning,
+          shire:
+            propertyData?.shire || propertyData?.zoning || "Unknown Shire",
+          geometry: geoJsonGeometry,
+        };
+
+        if (parentLotLayerRef.current) {
+          map.removeLayer(parentLotLayerRef.current);
+        }
+
+        const parentFeature: GeoJSON.Feature = {
+          type: "Feature",
+          geometry: geoJsonGeometry,
+          properties: {},
+        };
+
+        parentLotLayerRef.current = L.geoJSON(parentFeature, {
+          style: {
+            color: "#2563EB",
+            weight: 3,
+            opacity: 1,
+            fillOpacity: 0.1,
+            fillColor: "#2563EB",
+          },
+          smoothFactor: 0,
+        }).addTo(map);
+
+        setParentLot(newParentLot);
+        setDrawnLines([]);
+        setGeneratedLots([]);
+
+        devLog.log(
+          "✅ Parent lot created from selected parcel:",
+          newParentLot,
+        );
       }
     } catch (error) {
       console.error("��� Error converting selected parcel:", error);

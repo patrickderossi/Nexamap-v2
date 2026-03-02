@@ -10,9 +10,10 @@ import { ExportDwgButton } from "./ExportDwgButton";
 import { FeasibilityStudyButton } from "./FeasibilityStudyButton";
 import { SetbackAnalysisButton } from "./SetbackAnalysisButton";
 import { FeedbackModal, FeedbackButton } from "./FeedbackModal";
+import type { SelectedParcel } from "../../shared/types";
 
 interface MainToolbarProps {
-  selectedParcel?: any;
+  selectedParcel?: SelectedParcel;
   showYieldEstimator?: boolean;
   onYieldEstimatorToggle?: () => void;
   showFeasibilityStudy?: boolean;
@@ -91,7 +92,7 @@ function MainToolbarComponent({
             feedbackType="analysis-tools"
             context={
               selectedParcel
-                ? `Selected property: ${selectedParcel.planNumber || "Unknown"}\nArea: ${selectedParcel.area || "Unknown"}`
+                ? `Selected property: ${selectedParcel.data?.planNumber || "Unknown"}\nArea: ${selectedParcel.data?.area || "Unknown"}`
                 : "No property currently selected"
             }
           />

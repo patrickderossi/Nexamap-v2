@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { devLog } from "./logger";
 
 // Get Supabase configuration from environment variables
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -8,7 +9,7 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 let supabase: any;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn("Missing Supabase environment variables. Using mock client.");
+  devLog.warn("Missing Supabase environment variables. Using mock client.");
 
   // Create a mock Supabase client for build time
   supabase = {

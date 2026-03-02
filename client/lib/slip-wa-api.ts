@@ -249,71 +249,68 @@ function calculateInteriorAngles(ring: [number, number][]): string[] {
   return angles;
 }
 
+export interface CadastralFeature {
+  geometry: {
+    rings: number[][][];
+  };
+  attributes: Record<string, any>;
+}
+
+export async function fetchCadastralFeature(
+  params: SlipWaQueryParams,
+): Promise<CadastralFeature | null> {
+  const [lat, lng] = params.coordinates;
+  const point = `${lng},${lat}`;
+
+  const queryParams = new URLSearchParams({
+    f: "json",
+    returnGeometry: "true",
+    spatialRel: "esriSpatialRelIntersects",
+    geometry: point,
+    geometryType: "esriGeometryPoint",
+    inSR: "4326",
+    outSR: "4326",
+    outFields:
+      "land_id,road_number_1,road_name,road_type,locality,lot_number",
+    maxRecordCount: "1",
+    maxAllowableOffset: "0.000001",
+    geometryPrecision: "12",
+  });
+
+  let cadastralUrl = `https://public-services.slip.wa.gov.au/public/rest/services/SLIP_Public_Services/Places_and_Addresses/MapServer/4/query`;
+  let response = await fetch(`${cadastralUrl}?${queryParams}`);
+  let data = await response.json();
+
+  if (!data.features || data.features.length === 0) {
+    cadastralUrl = `https://public-services.slip.wa.gov.au/public/rest/services/SLIP_Public_Services/Places_and_Addresses/MapServer/3/query`;
+    response = await fetch(`${cadastralUrl}?${queryParams}`);
+    data = await response.json();
+  }
+
+  if (data.features && data.features.length > 0) {
+    return data.features[0] as CadastralFeature;
+  }
+
+  return null;
+}
+
 /**
  * Query SLIP WA Places and Addresses service for current cadastral data and lot size calculation
  */
 export async function queryCadastralData(
   params: SlipWaQueryParams,
 ): Promise<Partial<PropertyDetails>> {
-  const [lat, lng] = params.coordinates;
-
   try {
     devLog.log(
       "🔍 Using Places and Addresses REST API for current cadastral geometry...",
     );
 
-    const point = `${lng},${lat}`;
+    const feature = await fetchCadastralFeature(params);
 
-    // Try layer 4 (large scale) first for current data
-    let cadastralUrl = `https://public-services.slip.wa.gov.au/public/rest/services/SLIP_Public_Services/Places_and_Addresses/MapServer/4/query`;
-    let queryParams = new URLSearchParams({
-      f: "json",
-      returnGeometry: "true", // Get geometry for area calculation
-      spatialRel: "esriSpatialRelIntersects",
-      geometry: point,
-      geometryType: "esriGeometryPoint",
-      inSR: "4326",
-      outSR: "4326",
-      outFields:
-        "land_id,road_number_1,road_name,road_type,locality,lot_number",
-      maxRecordCount: "1",
-      // High-precision geometry parameters to prevent jagged boundaries
-      maxAllowableOffset: "0.000001", // 1e-6 degrees ≈ 0.11m precision
-      geometryPrecision: "12", // 12 decimal places for cadastral precision
-    });
+    if (feature) {
+      devLog.log("📋 Current Cadastre Properties:", feature.attributes);
 
-    let response = await fetch(`${cadastralUrl}?${queryParams}`);
-    let data = await response.json();
-
-    devLog.log("🏠 Places and Addresses Layer 4 Response:", data);
-
-    // If layer 4 doesn't have data, try layer 3 (small scale)
-    if (!data.features || data.features.length === 0) {
-      devLog.log("🔍 Layer 4 empty, trying Layer 3...");
-      cadastralUrl = `https://public-services.slip.wa.gov.au/public/rest/services/SLIP_Public_Services/Places_and_Addresses/MapServer/3/query`;
-      response = await fetch(`${cadastralUrl}?${queryParams}`);
-      data = await response.json();
-      devLog.log("🏠 Places and Addresses Layer 3 Response:", data);
-    }
-
-    if (data.features && data.features.length > 0) {
-      const feature = data.features[0];
-      console.log("📋 Current Cadastre Properties:", feature.attributes);
-
-      // Debug: Log which layer provided data and geometry precision
-      const layerUsed = cadastralUrl.includes("MapServer/4")
-        ? "Layer 4 (detailed)"
-        : "Layer 3 (small scale)";
-      const vertexCount = feature.geometry?.rings?.[0]?.length || 0;
-      devLog.log(`🎯 Geometry source: ${layerUsed}, Vertices: ${vertexCount}`);
-
-      if (vertexCount > 0) {
-        const sampleCoords = feature.geometry.rings[0].slice(0, 3);
-        devLog.log(`📐 Sample coordinates:`, sampleCoords);
-      }
-
-      // Convert ESRI geometry to GeoJSON for Turf
-      if (feature.geometry && feature.geometry.rings) {
+      if (feature.geometry?.rings) {
         const geoJsonFeature = {
           type: "Feature" as const,
           geometry: {
@@ -323,7 +320,7 @@ export async function queryCadastralData(
           properties: feature.attributes,
         };
 
-        console.log(
+        devLog.log(
           "📐 Converting to GeoJSON and projecting to GDA2020 MGA Zone 50...",
         );
 
@@ -345,12 +342,12 @@ export async function queryCadastralData(
           (length, index) => `Side ${index + 1}: ${length.toFixed(2)}m`,
         );
 
-        console.log(
+        devLog.log(
           `✅ Survey-grade area from current cadastre (EPSG:7850): ${sqm.toFixed(2)} m² (${ha} ha)`,
         );
-        console.log(`🔍 Boundary lengths:`, boundaryLengths);
-        console.log(`📏 Perimeter: ${perimeter.toFixed(2)}m`);
-        console.log(`📐 Interior angles:`, interiorAngles);
+        devLog.log(`🔍 Boundary lengths:`, boundaryLengths);
+        devLog.log(`📏 Perimeter: ${perimeter.toFixed(2)}m`);
+        devLog.log(`📐 Interior angles:`, interiorAngles);
 
         // Extract plan number from the lot_number field if available, make it more informative
         let planNumber = undefined;
@@ -373,8 +370,6 @@ export async function queryCadastralData(
           interiorAngles,
         };
       }
-    } else {
-      console.log("���️ No current cadastral features found at this location");
     }
 
     return {};
@@ -412,18 +407,16 @@ export async function queryBushfireData(
     const response = await fetch(`${bushfireUrl}?${queryParams}`);
     const data = await response.json();
 
-    console.log("🔥 SLIP WA Bushfire Response:", data);
+    devLog.log("🔥 SLIP WA Bushfire Response:", data);
 
     if (data.features && data.features.length > 0) {
-      // Property is within Designated Bushfire Prone Area
-      console.log("✅ Property is within Designated Bushfire Prone Area");
+      devLog.log("✅ Property is within Designated Bushfire Prone Area");
 
       return {
         balRating: "In BAL Area",
       };
     } else {
-      // Not in Designated Bushfire Prone Area
-      console.log("✅ Property is NOT in Designated Bushfire Prone Area");
+      devLog.log("✅ Property is NOT in Designated Bushfire Prone Area");
       return {
         balRating: "Not in BAL Area",
       };
@@ -466,8 +459,8 @@ export async function queryPlanningData(
       const feature = data.features[0];
       const attrs = feature.attributes;
 
-      console.log("🏗️ Planning Layer 111 Response:", attrs);
-      console.log("🏗️ Available fields:", Object.keys(attrs));
+      devLog.log("🏗️ Planning Layer 111 Response:", attrs);
+      devLog.log("🏗️ Available fields:", Object.keys(attrs));
 
       // Extract R-code (check multiple possible field names)
       const rCodeNo =
@@ -477,7 +470,7 @@ export async function queryPlanningData(
       const zoneCode = attrs.ZONE_CODE || attrs.zone_code || attrs.ZONING;
       const landUse = attrs.LAND_USE || attrs.land_use || attrs.LANDUSE;
 
-      console.log(
+      devLog.log(
         "📋 Field values - rCodeNo:",
         rCodeNo,
         "schemeName:",
@@ -511,7 +504,7 @@ export async function queryPlanningData(
         (schemeName?.includes("SWAN") ||
           landUse?.toLowerCase().includes("residential"))
       ) {
-        console.log(
+        devLog.log(
           "🏘️ Detected residential area in SWAN scheme, may need manual R-Code assignment",
         );
         finalZoning = `${schemeName || "SWAN"} - Residential (R-Code TBD)`;

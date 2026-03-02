@@ -8,10 +8,11 @@ import {
   Info
 } from 'lucide-react';
 import { getZoningRequirements, extractRCode, SubdivisionMode, getEffectiveMinLotArea } from '@/lib/zoning-requirements';
+import type { SelectedParcel, PropertyData } from "../../shared/types";
 
 interface LotYieldPanelProps {
-  selectedParcel?: any;
-  propertyData?: any;
+  selectedParcel?: SelectedParcel;
+  propertyData?: PropertyData | null;
   show?: boolean;
   onClose?: () => void;
   className?: string;

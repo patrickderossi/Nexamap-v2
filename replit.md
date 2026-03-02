@@ -11,8 +11,14 @@ A full-stack geospatial real estate and property analysis application focused on
 
 ## Project Structure
 - `client/` - React frontend (entry: `client/App.tsx`)
+  - `client/components/` - React components
+  - `client/hooks/` - Custom React hooks
+  - `client/lib/` - Utility libraries (SLIP WA API, logger, email service, etc.)
 - `server/` - Express backend (entry: `server/index.ts`)
-- `shared/` - Shared types/utilities
+  - `server/routes/` - API route handlers
+  - `server/services/` - Backend services (email)
+  - `server/middleware/` - Auth middleware
+- `shared/` - Shared types (`shared/types.ts` — SelectedParcel, PropertyData, CadastralInfo, EsriGeometry)
 - `public/` - Static assets
 
 ## Running
@@ -29,3 +35,16 @@ A full-stack geospatial real estate and property analysis application focused on
 - Vite dev server runs on port 5000 (configured for Replit webview)
 - Express server runs as Vite middleware in development
 - Google Maps API key needed for place search functionality
+
+## Logging
+- Client-side logging uses `devLog` from `client/lib/logger.ts` (suppressed in production)
+- Server-side uses standard `console.log`/`console.error`
+
+## Security
+- CORS uses proper URL hostname parsing (not string includes) for origin validation
+- Welcome email endpoint requires JWT authentication
+- TLS config uses minimum TLSv1.2 (no insecure fallbacks)
+
+## Types
+- `shared/types.ts` defines `SelectedParcel`, `PropertyData`, `CadastralInfo`, `EsriGeometry` — used across 14+ components
+- Cadastral fetch logic centralized in `client/lib/slip-wa-api.ts` via `fetchCadastralFeature()`

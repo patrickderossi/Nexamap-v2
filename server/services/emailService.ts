@@ -70,10 +70,8 @@ class EmailService {
           user: smtpUser,
           pass: smtpPass,
         },
-        // Enhanced TLS configuration for better compatibility
         tls: {
-          ciphers: 'SSLv3',
-          rejectUnauthorized: false
+          minVersion: 'TLSv1.2',
         },
         // Connection timeout and retry options
         connectionTimeout: 60000,
@@ -120,17 +118,15 @@ class EmailService {
           console.log("⚠️  For personal accounts, enable 2FA and use App Password");
         }
 
-        // Microsoft specific settings
         transportConfig.tls = {
-          ciphers: 'SSLv3',
-          rejectUnauthorized: false
+          minVersion: 'TLSv1.2',
         };
         transportConfig.requireTLS = true;
       } else if (smtpHost.includes('gmail.com')) {
         console.log("🔧 Detected Gmail - using secure configuration");
         transportConfig.service = 'gmail';
         transportConfig.tls = {
-          rejectUnauthorized: false
+          minVersion: 'TLSv1.2',
         };
       }
 

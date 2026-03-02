@@ -41,6 +41,7 @@ import {
 import { toast } from "@/hooks/use-toast";
 import L from "leaflet";
 import { devLog } from "@/lib/logger";
+import type { SelectedParcel, PropertyData } from "../../shared/types";
 
 // Lazy load heavy analysis components
 const SubdivisionManager = lazy(() =>
@@ -64,32 +65,13 @@ const SetbackAnalysisPanel = lazy(() =>
   })),
 );
 
-interface PropertyData {
-  lotSize: string;
-  lotDimensions: string;
-  planNumber: string;
-  zoning: string;
-  shire?: string;
-  landUse?: string;
-  bushfire: string;
-  heritage: string;
-  floodRisk: string;
-  contamination: string;
-  easements: string;
-  soilType?: string;
-  coordinates: [number, number];
-  boundaryLengths?: string[];
-  perimeter?: string;
-  interiorAngles?: string[];
-}
-
 interface MapFirstLayoutProps {
   data: PropertyData | null;
   address?: string;
   coordinates?: [number, number];
   onSearch: (query: string, coordinates?: [number, number]) => void;
   onPropertySelect?: (
-    propertyData: any,
+    propertyData: PropertyData,
     coordinates: [number, number],
     address: string,
   ) => void;
@@ -113,7 +95,7 @@ export function MapFirstLayout({
   });
   const [hasActiveSplits, setHasActiveSplits] = useState(false);
   const [hasGeneratedLots, setHasGeneratedLots] = useState(false);
-  const [selectedParcel, setSelectedParcel] = useState<any>(null);
+  const [selectedParcel, setSelectedParcel] = useState<SelectedParcel | null>(null);
   const [showNotification, setShowNotification] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState("");
   const [showYieldEstimator, setShowYieldEstimator] = useState(false);
@@ -203,7 +185,7 @@ export function MapFirstLayout({
 
   // When a property is selected normally, store it for subdivision use
   const handlePropertySelect = useCallback(
-    (propertyData: any, coordinates: [number, number], rawGeometry?: any) => {
+    (propertyData: PropertyData, coordinates: [number, number], rawGeometry?: { rings: number[][][] }) => {
       devLog.log("��� Property selected:", propertyData);
       devLog.log("🗺️ Raw geometry:", rawGeometry);
       devLog.log(
@@ -467,7 +449,7 @@ export function MapFirstLayout({
           <SubdivisionManager
             map={mapRef.current}
             subdivisionMode={subdivisionMode}
-            selectedParcel={selectedParcel}
+            selectedParcel={selectedParcel ?? undefined}
             onModeChange={handleSubdivisionModeChange}
             onSplitsChange={setHasActiveSplits}
             onLotsChange={setHasGeneratedLots}
@@ -492,7 +474,7 @@ export function MapFirstLayout({
               }
             >
               <LotYieldPanel
-                selectedParcel={selectedParcel}
+                selectedParcel={selectedParcel ?? undefined}
                 propertyData={data}
                 show={showYieldEstimator}
                 onClose={() => setShowYieldEstimator(false)}
@@ -519,7 +501,7 @@ export function MapFirstLayout({
               }
             >
               <FeasibilityStudyPanel
-                selectedParcel={selectedParcel}
+                selectedParcel={selectedParcel ?? undefined}
                 show={showFeasibilityStudy}
                 onClose={() => setShowFeasibilityStudy(false)}
               />
@@ -545,7 +527,7 @@ export function MapFirstLayout({
               }
             >
               <SetbackAnalysisPanel
-                selectedParcel={selectedParcel}
+                selectedParcel={selectedParcel ?? undefined}
                 show={showSetbackAnalysis}
                 onClose={() => setShowSetbackAnalysis(false)}
               />
@@ -564,9 +546,9 @@ export function MapFirstLayout({
                 onGenerateLots={handleGenerateLots}
                 hasDrawnLines={hasActiveSplits}
                 hasGeneratedLots={hasGeneratedLots}
-                selectedParcel={selectedParcel}
+                selectedParcel={selectedParcel ?? undefined}
                 map={mapRef.current}
-                propertyData={data}
+                propertyData={selectedParcel ?? undefined}
               />
             </div>
           </div>

@@ -1,9 +1,10 @@
 import React from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Ruler } from 'lucide-react';
+import type { SelectedParcel } from "../../shared/types";
 
 interface SetbackAnalysisButtonProps {
-  selectedParcel?: any;
+  selectedParcel?: SelectedParcel;
   disabled?: boolean;
   active?: boolean;
   onClick?: () => void;

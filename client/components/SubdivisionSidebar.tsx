@@ -120,7 +120,7 @@ export function SubdivisionSidebar({
     let subdivisionDiagramSvg = "";
 
     try {
-      console.log(
+      devLog.log(
         "📐 Generating SVG subdivision diagram from lot geometries...",
       );
 
@@ -264,15 +264,15 @@ export function SubdivisionSidebar({
           </svg>
         `;
 
-        console.log("✅ SVG subdivision diagram generated successfully");
+        devLog.log("✅ SVG subdivision diagram generated successfully");
         loadingToast.innerHTML = "📄 Generating PDF report...";
       } else {
-        console.log("ℹ️ No lots to diagram");
+        devLog.log("ℹ️ No lots to diagram");
         loadingToast.innerHTML =
           "📄 Generating PDF report (no subdivision layout)...";
       }
     } catch (error) {
-      console.warn("❌ Failed to generate SVG diagram:", error);
+      devLog.warn("❌ Failed to generate SVG diagram:", error);
       loadingToast.innerHTML =
         "📄 Generating PDF report (no layout diagram)...";
     }

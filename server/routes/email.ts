@@ -2,6 +2,7 @@ import express from "express";
 import { z } from "zod";
 import { emailService } from "../services/emailService";
 import { createClient } from "@supabase/supabase-js";
+import { authenticateToken } from "../middleware/auth";
 
 const router = express.Router();
 
@@ -209,7 +210,7 @@ router.post("/contact", async (req, res) => {
  * POST /api/email/welcome
  * Send welcome email (auth required)
  */
-router.post("/welcome", async (req, res) => {
+router.post("/welcome", authenticateToken, async (req, res) => {
   try {
     const { email, name } = req.body;
 

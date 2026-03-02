@@ -86,25 +86,3 @@ export const handleListingsSearch: RequestHandler = async (req, res) => {
   }
 };
 
-/**
- * Get listing details by ID
- * GET /api/listings/:id
- */
-export const handleGetListing: RequestHandler = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // In a real app, fetch from database or cache
-    // For now, return a mock response
-    res.json({
-      error: "Not implemented",
-      message: "Individual listing retrieval not yet implemented",
-    });
-  } catch (error) {
-    res.status(500).json({
-      error: "Fetch failed",
-      message:
-        error instanceof Error ? error.message : "Failed to fetch listing",
-    });
-  }
-};

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { loadGoogleMapsAPI, isGoogleMapsLoaded } from "@/lib/google-maps";
 import { useDebounce } from "@/hooks/use-debounce";
+import { devLog } from "@/lib/logger";
 
 interface PlaceResult {
   place_id: string;
@@ -48,7 +49,7 @@ export function SimpleGooglePlacesInput({
           const div = document.createElement('div');
           placesServiceRef.current = new google.maps.places.PlacesService(div);
         } else {
-          console.warn('Google Places API not fully loaded');
+          devLog.warn('Google Places API not fully loaded');
         }
       } catch (error) {
         console.error('Failed to load Google Maps API:', error);
@@ -130,10 +131,10 @@ export function SimpleGooglePlacesInput({
         if (status === google.maps.places.PlacesServiceStatus.OK && place?.geometry?.location) {
           const lat = place.geometry.location.lat();
           const lng = place.geometry.location.lng();
-          console.log('📍 Google Places coordinates retrieved:', [lat, lng], 'for:', suggestion.formatted_address);
+          devLog.log('📍 Google Places coordinates retrieved:', [lat, lng], 'for:', suggestion.formatted_address);
           onPlaceSelected(suggestion.formatted_address, [lat, lng]);
         } else {
-          console.warn('❌ Failed to get coordinates for:', suggestion.formatted_address, 'Status:', status);
+          devLog.warn('❌ Failed to get coordinates for:', suggestion.formatted_address, 'Status:', status);
           onPlaceSelected(suggestion.formatted_address);
         }
       });

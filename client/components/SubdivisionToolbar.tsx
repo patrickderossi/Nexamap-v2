@@ -19,6 +19,7 @@ import L from "leaflet";
 import { toast } from "@/hooks/use-toast";
 import { VideoTutorialModal } from "./VideoTutorialModal";
 import { devLog } from "@/lib/logger";
+import type { SelectedParcel } from "../../shared/types";
 
 export interface SubdivisionMode {
   active: boolean;
@@ -34,9 +35,9 @@ interface SubdivisionToolbarProps {
   disabled?: boolean;
   hasDrawnLines?: boolean;
   hasGeneratedLots?: boolean;
-  selectedParcel?: any;
+  selectedParcel?: SelectedParcel;
   map?: L.Map | null;
-  propertyData?: any;
+  propertyData?: SelectedParcel;
 }
 
 function SubdivisionToolbarComponent({

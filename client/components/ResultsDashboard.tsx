@@ -2,6 +2,7 @@ import { Home, Zap, Flame, Shield, Download } from "lucide-react";
 import { PropertyCard, PropertyItem } from "./PropertyCard";
 import { MapViewer } from "./MapViewer";
 import { Button } from "@/components/ui/button";
+import { devLog } from "@/lib/logger";
 
 interface PropertyData {
   lotSize: string;
@@ -24,7 +25,7 @@ interface ResultsDashboardProps {
 export function ResultsDashboard({ data, address }: ResultsDashboardProps) {
   const handleExportReport = () => {
     // TODO: Implement PDF export
-    console.log('Exporting report for:', address);
+    devLog.log('Exporting report for:', address);
   };
 
   return (

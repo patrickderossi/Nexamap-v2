@@ -18,6 +18,7 @@ import {
   Download,
   X
 } from 'lucide-react';
+import type { SelectedParcel } from "../../shared/types";
 
 interface FeasibilityStudyData {
   // Site Acquisition
@@ -52,7 +53,7 @@ interface FeasibilityStudyData {
 }
 
 interface FeasibilityStudyPanelProps {
-  selectedParcel?: any;
+  selectedParcel?: SelectedParcel;
   show: boolean;
   onClose: () => void;
 }

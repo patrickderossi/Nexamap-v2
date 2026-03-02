@@ -1,9 +1,10 @@
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Calculator } from 'lucide-react';
+import type { SelectedParcel } from "../../shared/types";
 
 interface LotYieldButtonProps {
-  selectedParcel?: any;
+  selectedParcel?: SelectedParcel;
   disabled?: boolean;
   active?: boolean;
   onClick?: () => void;

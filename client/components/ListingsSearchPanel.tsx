@@ -15,6 +15,7 @@ import { ListingsSearchFilters } from "./RealEstateListingsFilter";
 import { Listing } from "./RealEstateListingsSidebar";
 import { loadGoogleMapsAPI, isGoogleMapsLoaded } from "@/lib/google-maps";
 import { useDebounce } from "@/hooks/use-debounce";
+import { devLog } from "@/lib/logger";
 
 interface PlaceSuggestion {
   place_id: string;
@@ -72,7 +73,7 @@ export function ListingsSearchPanel({
           serviceRef.current = new google.maps.places.AutocompleteService();
         }
       } catch (error) {
-        console.error("Failed to load Google Maps API:", error);
+        devLog.warn("Failed to load Google Maps API:", error);
       }
     };
     initMaps();

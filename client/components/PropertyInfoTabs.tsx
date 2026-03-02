@@ -4,11 +4,12 @@ import { PropertyInfoPanel } from "./PropertyInfoPanel";
 import { ListingsSearchPanel } from "./ListingsSearchPanel";
 import type { Listing } from "./RealEstateListingsSidebar";
 import type { ListingsSearchFilters } from "./RealEstateListingsFilter";
+import type { SelectedParcel, PropertyData } from "../../shared/types";
 
 interface PropertyInfoTabsProps {
-  selectedParcel: any;
+  selectedParcel: SelectedParcel | null;
   address?: string;
-  data?: any;
+  data?: PropertyData | null;
   onSearch: (filters: ListingsSearchFilters) => void;
   listings: Listing[];
   listingsLoading: boolean;

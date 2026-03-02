@@ -10,11 +10,12 @@ import {
 import { generateSoilReport, getSoilSummary } from "@/lib/soil-classifier";
 import { PropertyItem } from "./PropertyCard";
 import { FeedbackModal } from "./FeedbackModal";
+import type { SelectedParcel, PropertyData } from "../../shared/types";
 
 interface PropertyInfoPanelProps {
-  selectedParcel: any;
+  selectedParcel: SelectedParcel | null;
   address?: string;
-  data?: any;
+  data?: PropertyData | null;
 }
 
 export function PropertyInfoPanel({
@@ -178,7 +179,7 @@ export function PropertyInfoPanel({
 Property: ${address}
 Lot Size: ${propertyData?.lotSize || "Unknown"}
 Zoning: ${propertyData?.zoning || "Unknown"}
-Plan Number: ${selectedParcel?.planNumber || "Unknown"}
+Plan Number: ${selectedParcel?.data?.planNumber || "Unknown"}
               `.trim()
               : "No property selected"
           }

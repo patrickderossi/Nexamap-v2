@@ -1,9 +1,10 @@
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Calculator, TrendingUp } from 'lucide-react';
+import type { SelectedParcel } from "../../shared/types";
 
 interface FeasibilityStudyButtonProps {
-  selectedParcel?: any;
+  selectedParcel?: SelectedParcel;
   disabled?: boolean;
   active?: boolean;
   onClick?: () => void;

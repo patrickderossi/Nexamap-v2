@@ -1,3 +1,5 @@
+import { devLog } from "./logger";
+
 interface FeedbackData {
   type: "lot-data" | "map-layers" | "analysis-tools";
   title: string;
@@ -37,7 +39,7 @@ export async function sendFeedbackEmail(data: FeedbackData): Promise<void> {
 
       // If SMTP authentication fails, offer mailto fallback
       if (errorData.message && errorData.message.includes('535')) {
-        console.log("🔄 SMTP failed, offering mailto fallback...");
+        devLog.log("🔄 SMTP failed, offering mailto fallback...");
         const mailtoLink = createMailtoLink(data);
 
         // Ask user if they want to open their email client
@@ -57,11 +59,10 @@ export async function sendFeedbackEmail(data: FeedbackData): Promise<void> {
     }
 
     const result = await response.json();
-    console.log("✅ Feedback sent successfully:", result);
+    devLog.log("✅ Feedback sent successfully:", result);
 
-    // If there's a preview URL (for test emails), log it
     if (result.previewUrl) {
-      console.log("📧 Email preview:", result.previewUrl);
+      devLog.log("📧 Email preview:", result.previewUrl);
     }
   } catch (error) {
     console.error("❌ Failed to send feedback email:", error);
@@ -94,7 +95,7 @@ export async function sendContactEmail(data: ContactData): Promise<void> {
 
       // If SMTP authentication fails, offer mailto fallback
       if (errorData.message && errorData.message.includes('535')) {
-        console.log("🔄 SMTP failed, offering mailto fallback...");
+        devLog.log("🔄 SMTP failed, offering mailto fallback...");
         const mailtoLink = createContactMailtoLink(data);
 
         // Ask user if they want to open their email client
@@ -114,7 +115,7 @@ export async function sendContactEmail(data: ContactData): Promise<void> {
     }
 
     const result = await response.json();
-    console.log("✅ Contact form sent successfully:", result);
+    devLog.log("✅ Contact form sent successfully:", result);
   } catch (error) {
     console.error("❌ Failed to send contact form:", error);
     throw new Error(
@@ -174,7 +175,7 @@ export async function sendWelcomeEmail(userName: string): Promise<void> {
     const authToken = await getAuthToken();
 
     if (!authToken) {
-      console.warn("⚠️ No auth token available for welcome email, skipping...");
+      devLog.warn("⚠️ No auth token available for welcome email, skipping...");
       return;
     }
 
@@ -205,10 +206,10 @@ export async function sendWelcomeEmail(userName: string): Promise<void> {
     }
 
     const result = await response.json();
-    console.log("✅ Welcome email sent successfully:", result);
+    devLog.log("✅ Welcome email sent successfully:", result);
 
     if (result.previewUrl) {
-      console.log("📧 Email preview:", result.previewUrl);
+      devLog.log("📧 Email preview:", result.previewUrl);
     }
   } catch (error) {
     console.error("❌ Failed to send welcome email:", error);
@@ -216,55 +217,38 @@ export async function sendWelcomeEmail(userName: string): Promise<void> {
   }
 }
 
-// Send welcome email during signup (doesn't require authentication)
 export async function sendWelcomeEmailForSignup(
   userEmail: string,
   userName: string,
 ): Promise<void> {
   try {
-    const response = await fetch("/api/email/welcome-signup", {
+    const token = await getAuthToken();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    const response = await fetch("/api/email/welcome", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        userEmail,
-        userName,
-      }),
+      headers,
+      body: JSON.stringify({ userEmail, userName }),
     });
 
     if (!response.ok) {
-      let errorData;
-      try {
-        errorData = await response.json();
-      } catch {
-        // If JSON parsing fails, try to get text (but only if body hasn't been read)
-        try {
-          const errorText = await response.text();
-          errorData = { error: `HTTP ${response.status}`, message: errorText };
-        } catch {
-          errorData = {
-            error: `HTTP ${response.status}`,
-            message: "Unknown error",
-          };
-        }
-      }
-      console.warn(
-        `⚠️ Welcome email failed during signup (${response.status}):`,
-        errorData,
-      );
+      devLog.warn(`⚠️ Welcome email failed during signup (${response.status})`);
       return;
     }
 
     const result = await response.json();
-    console.log("✅ Welcome email sent successfully during signup:", result);
+    devLog.log("✅ Welcome email sent successfully during signup:", result);
 
     if (result.previewUrl) {
-      console.log("📧 Email preview:", result.previewUrl);
+      devLog.log("📧 Email preview:", result.previewUrl);
     }
   } catch (error) {
     console.error("❌ Failed to send welcome email during signup:", error);
-    // Don't throw error for welcome email - it's not critical
   }
 }
 
@@ -303,10 +287,10 @@ export async function sendTestEmail(
     }
 
     const result = await response.json();
-    console.log("✅ Test email sent successfully:", result);
+    devLog.log("✅ Test email sent successfully:", result);
 
     if (result.previewUrl) {
-      console.log("📧 Email preview:", result.previewUrl);
+      devLog.log("📧 Email preview:", result.previewUrl);
     }
   } catch (error) {
     console.error("❌ Failed to send test email:", error);
@@ -316,11 +300,11 @@ export async function sendTestEmail(
   }
 }
 
-// Check email service status
 export async function checkEmailStatus(): Promise<{
-  status: string;
-  hasSmtp: boolean;
-  timestamp: string;
+  configured: boolean;
+  service: string;
+  from: string;
+  debug?: { smtpHost: string; smtpPort: number; smtpSecure: boolean };
 }> {
   try {
     const response = await fetch("/api/email/status");

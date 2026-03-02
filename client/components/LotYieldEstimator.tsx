@@ -17,9 +17,10 @@ import {
   Info
 } from 'lucide-react';
 import { getZoningRequirements, extractRCode, SubdivisionMode, getEffectiveMinLotArea } from '@/lib/zoning-requirements';
+import type { SelectedParcel } from "../../shared/types";
 
 interface LotYieldEstimatorProps {
-  selectedParcel?: any;
+  selectedParcel?: SelectedParcel;
   disabled?: boolean;
   show?: boolean;
   onClose?: () => void;
@@ -54,8 +55,9 @@ export function LotYieldEstimator({
     if (!selectedParcel) return;
 
     // Get property data
-    const area = selectedParcel.area || selectedParcel.lotSize || 800; // fallback to 800m²
-    const zoning = selectedParcel.zoning || selectedParcel.rCode || 'R30';
+    const rawArea = selectedParcel.data?.area || selectedParcel.data?.lotSize || 800;
+    const area = typeof rawArea === 'string' ? parseFloat(rawArea.replace(/[^\d.]/g, '')) || 800 : rawArea;
+    const zoning = selectedParcel.data?.zoning || selectedParcel.data?.rCode || 'R30';
     const rCode = extractRCode(zoning);
 
     if (!rCode) {

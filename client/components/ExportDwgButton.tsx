@@ -9,6 +9,7 @@ import { Download, FileText } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { DxfWriter, point2d, point3d } from "@tarikjabiri/dxf";
 import proj4 from "proj4";
+import type { SelectedParcel } from "../../shared/types";
 
 // Setup EPSG:7850 projection (GDA2020 / MGA Zone 50 - used in WA)
 proj4.defs(
@@ -25,7 +26,7 @@ function projectCoordinate([lng, lat]: [number, number]): [number, number] {
 }
 
 interface ExportDwgButtonProps {
-  selectedParcel?: any;
+  selectedParcel?: SelectedParcel;
   disabled?: boolean;
   onClick?: () => void;
   className?: string;

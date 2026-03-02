@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { X, Play, Pause, SkipForward, Volume2, VolumeX } from "lucide-react";
+import { devLog } from "@/lib/logger";
 
 interface VideoTutorialModalProps {
   open: boolean;
@@ -40,7 +41,7 @@ export function VideoTutorialModal({
         })
         .catch((error) => {
           // Handle autoplay failure (some browsers block autoplay)
-          console.log("Autoplay prevented:", error);
+          devLog.log("Autoplay prevented:", error);
           setIsPlaying(false);
         });
     } else if (!open && videoRef.current) {
