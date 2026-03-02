@@ -20,6 +20,11 @@ A full-stack geospatial real estate and property analysis application focused on
 - Build: `pnpm build`
 - Production: `pnpm start`
 
+## Layout
+- **Left sidebar** (350px): Property details, listings tabs — toggle with chevron
+- **Right sidebar** (280px): Map Layers + Analysis Tools — toggle with chevron
+- **Floating panels**: Lot Yield, Feasibility Study, Setback Analysis open as draggable overlays (DraggablePanel)
+
 ## Key Configuration
 - Vite dev server runs on port 5000 (configured for Replit webview)
 - Express server runs as Vite middleware in development

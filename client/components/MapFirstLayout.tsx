@@ -105,6 +105,7 @@ export function MapFirstLayout({
   loading,
 }: MapFirstLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
   const [subdivisionMode, setSubdivisionMode] = useState<SubdivisionMode>({
     active: false,
     drawing: false,
@@ -473,11 +474,11 @@ export function MapFirstLayout({
           />
         </Suspense>
 
-        {/* Lot Yield Estimator Panel */}
+        {/* Lot Yield Estimator Panel - floats over map */}
         {showYieldEstimator && (
           <DraggablePanel
             title="Lot Yield Estimator"
-            initialX={window.innerWidth - 400}
+            initialX={Math.max(0, window.innerWidth - 650)}
             initialY={80}
             className="w-80"
             onClose={() => setShowYieldEstimator(false)}
@@ -500,7 +501,7 @@ export function MapFirstLayout({
           </DraggablePanel>
         )}
 
-        {/* Feasibility Study Panel */}
+        {/* Feasibility Study Panel - floats over map */}
         {showFeasibilityStudy && (
           <DraggablePanel
             title="Feasibility Study"
@@ -526,11 +527,11 @@ export function MapFirstLayout({
           </DraggablePanel>
         )}
 
-        {/* Setback Analysis Panel */}
+        {/* Setback Analysis Panel - floats over map */}
         {showSetbackAnalysis && (
           <DraggablePanel
             title="Setback Analysis"
-            initialX={window.innerWidth - 450}
+            initialX={Math.max(0, window.innerWidth - 650)}
             initialY={120}
             className="w-96"
             onClose={() => setShowSetbackAnalysis(false)}
@@ -552,27 +553,6 @@ export function MapFirstLayout({
           </DraggablePanel>
         )}
 
-        {/* Main Analysis Toolbar - Right side, visible when property selected and not in subdivision mode */}
-        {selectedParcel && !subdivisionMode.active && (
-          <DraggablePanel
-            title="Analysis Tools"
-            initialX={Math.min(window.innerWidth - 250, window.innerWidth - 250)}
-            initialY={Math.max(80, Math.min(window.innerHeight - 400, window.innerHeight * 0.5))}
-            minimizable={true}
-          >
-            <MainToolbar
-              selectedParcel={selectedParcel}
-              showYieldEstimator={showYieldEstimator}
-              onYieldEstimatorToggle={handleYieldEstimatorToggle}
-              showFeasibilityStudy={showFeasibilityStudy}
-              onFeasibilityStudyToggle={handleFeasibilityStudyToggle}
-              showSetbackAnalysis={showSetbackAnalysis}
-              onSetbackAnalysisToggle={handleSetbackAnalysisToggle}
-              subdivisionActive={subdivisionMode.active}
-            />
-          </DraggablePanel>
-        )}
-
         {/* Subdivision Toolbar - Bottom center, only for subdivision tools */}
         {(selectedParcel || subdivisionMode.active) && (
           <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-[1000]">
@@ -591,24 +571,6 @@ export function MapFirstLayout({
             </div>
           </div>
         )}
-
-        {/* Floating Layer Controls */}
-        <DraggablePanel
-          title="Map Layers"
-          initialX={window.innerWidth - 290}
-          initialY={80}
-          minimizable={true}
-        >
-          <FloatingLayerControls
-            layers={layers}
-            onLayersChange={setLayers}
-            propertyControls={propertyControls}
-            onPropertyControlsChange={setPropertyControls}
-            hasSelectedProperty={!!address}
-            baseLayer={baseLayer}
-            onBaseLayerChange={handleBaseLayerChange}
-          />
-        </DraggablePanel>
 
         {/* Subdivision Notification */}
         <SubdivisionNotification
@@ -672,6 +634,58 @@ export function MapFirstLayout({
             <ChevronLeft className="w-5 h-5 text-gray-600" />
           ) : (
             <ChevronRight className="w-5 h-5 text-gray-600" />
+          )}
+        </button>
+      )}
+
+      {/* Right Sidebar - Map Layers & Analysis Tools */}
+      <div
+        className={`absolute top-0 right-0 h-full bg-white shadow-xl border-l border-gray-200 transition-transform duration-300 z-[1000] flex flex-col ${
+          rightSidebarOpen && !subdivisionMode.active
+            ? "translate-x-0"
+            : "translate-x-full"
+        }`}
+        style={{ width: "280px" }}
+      >
+        <div className="flex-1 overflow-y-auto">
+          <FloatingLayerControls
+            layers={layers}
+            onLayersChange={setLayers}
+            propertyControls={propertyControls}
+            onPropertyControlsChange={setPropertyControls}
+            hasSelectedProperty={!!address}
+            baseLayer={baseLayer}
+            onBaseLayerChange={handleBaseLayerChange}
+          />
+
+          {selectedParcel && !subdivisionMode.active && (
+            <div className="border-t border-gray-200">
+              <MainToolbar
+                selectedParcel={selectedParcel}
+                showYieldEstimator={showYieldEstimator}
+                onYieldEstimatorToggle={handleYieldEstimatorToggle}
+                showFeasibilityStudy={showFeasibilityStudy}
+                onFeasibilityStudyToggle={handleFeasibilityStudyToggle}
+                showSetbackAnalysis={showSetbackAnalysis}
+                onSetbackAnalysisToggle={handleSetbackAnalysisToggle}
+                subdivisionActive={subdivisionMode.active}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Right Sidebar Toggle Button */}
+      {!subdivisionMode.active && (
+        <button
+          onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
+          className="absolute top-1/2 transform -translate-y-1/2 bg-white border border-gray-200 rounded-l-lg p-2 shadow-lg hover:bg-gray-50 z-[1001] transition-all duration-300"
+          style={{ right: rightSidebarOpen ? "280px" : "0px" }}
+        >
+          {rightSidebarOpen ? (
+            <ChevronRight className="w-5 h-5 text-gray-600" />
+          ) : (
+            <ChevronLeft className="w-5 h-5 text-gray-600" />
           )}
         </button>
       )}

@@ -38,7 +38,10 @@ function MainToolbarComponent({
 
   return (
     <TooltipProvider>
-      <div className="p-3 flex flex-col gap-2 min-w-[200px]">
+      <div className="p-3 flex flex-col gap-2">
+        <div className="text-xs text-gray-500 font-medium text-center mb-1 border-b border-gray-100 pb-2">
+          Analysis Tools
+        </div>
 
         {/* Feasibility Study Button */}
         <FeasibilityStudyButton
