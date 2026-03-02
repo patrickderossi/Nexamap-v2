@@ -4,6 +4,7 @@ import {
   filterByLotSize,
   geocodeListing,
   estimatePropertyValue,
+  lookupPropertyDetails,
   ListingFilters,
   Listing,
 } from "../services/realEstateScraperService";
@@ -131,6 +132,35 @@ export const handleListingsSearch: RequestHandler = async (req, res) => {
       error: "Search failed",
       message:
         error instanceof Error ? error.message : "Failed to search listings",
+    });
+  }
+};
+
+export const handlePropertyLookup: RequestHandler = async (req, res) => {
+  try {
+    const { address, suburb } = req.query as {
+      address?: string;
+      suburb?: string;
+    };
+
+    if (!address || !suburb) {
+      return res.status(400).json({
+        error: "Missing required parameters",
+        message: "address and suburb parameters are required",
+      });
+    }
+
+    console.log(`🔍 Property lookup request: "${address}" in ${suburb}`);
+
+    const result = await lookupPropertyDetails(address.toString(), suburb.toString());
+
+    res.json(result);
+  } catch (error) {
+    console.error("❌ Property lookup error:", error);
+    res.status(500).json({
+      found: false,
+      error: "Lookup failed",
+      message: error instanceof Error ? error.message : "Failed to look up property",
     });
   }
 };

@@ -453,6 +453,144 @@ function getLandValuePerSqm(suburb: string): number {
   return 250;
 }
 
+export interface PropertyLookupResult {
+  found: boolean;
+  source?: "buy" | "sold";
+  address?: string;
+  bedrooms?: number;
+  bathrooms?: number;
+  parking?: number;
+  landSize?: string;
+  propertyType?: string;
+  price?: string;
+  imageUrl?: string;
+}
+
+function normalizeAddress(addr: string): string {
+  return addr
+    .toLowerCase()
+    .replace(/\b(street|st)\b/g, "st")
+    .replace(/\b(road|rd)\b/g, "rd")
+    .replace(/\b(avenue|ave)\b/g, "ave")
+    .replace(/\b(drive|dr)\b/g, "dr")
+    .replace(/\b(place|pl)\b/g, "pl")
+    .replace(/\b(court|ct)\b/g, "ct")
+    .replace(/\b(crescent|cres|cr)\b/g, "cr")
+    .replace(/\b(boulevard|blvd)\b/g, "blvd")
+    .replace(/\b(terrace|tce)\b/g, "tce")
+    .replace(/\b(close|cl)\b/g, "cl")
+    .replace(/\b(lane|ln)\b/g, "ln")
+    .replace(/\b(way)\b/g, "way")
+    .replace(/\b(circuit|cct)\b/g, "cct")
+    .replace(/\b(parade|pde)\b/g, "pde")
+    .replace(/\b(grove|gr)\b/g, "gr")
+    .replace(/\b(highway|hwy)\b/g, "hwy")
+    .replace(/\b(mews)\b/g, "mews")
+    .replace(/\b(ramble)\b/g, "ramble")
+    .replace(/\b(gardens|gdns)\b/g, "gdns")
+    .replace(/\b(hill)\b/g, "hill")
+    .replace(/[,.']/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractStreetNumber(addr: string): string {
+  const unitMatch = addr.match(/^(?:unit\s+)?(\d+)\s*\/\s*(\d+[a-z]?)\s/i);
+  if (unitMatch) return unitMatch[2].toLowerCase();
+
+  const match = addr.match(/^(\d+[a-z]?)\s/i);
+  return match ? match[1].toLowerCase() : "";
+}
+
+function extractUnitNumber(addr: string): string {
+  const unitSlash = addr.match(/^(?:unit\s+)?(\d+)\s*\/\s*\d+/i);
+  if (unitSlash) return unitSlash[1];
+
+  const unitPrefix = addr.match(/^unit\s+(\d+)/i);
+  if (unitPrefix) return unitPrefix[1];
+
+  return "";
+}
+
+function extractStreetName(addr: string): string {
+  const normalized = normalizeAddress(addr);
+  let cleaned = normalized
+    .replace(/^(?:unit\s+)?\d+\s*\/\s*/, "")
+    .replace(/^\d+[a-z]?\s+/, "");
+  cleaned = cleaned.replace(/\s+(st|rd|ave|dr|pl|ct|cr|blvd|tce|cl|ln|way|cct|pde|gr|hwy|mews|ramble|gdns|hill)$/, "");
+  return cleaned.trim();
+}
+
+function matchesAddress(
+  listingAddr: string,
+  targetNumber: string,
+  targetStreet: string,
+  targetUnit: string,
+): boolean {
+  const listingNorm = normalizeAddress(listingAddr);
+  const listingNumber = extractStreetNumber(listingNorm);
+  const listingStreet = extractStreetName(listingNorm);
+  const listingUnit = extractUnitNumber(listingNorm);
+
+  if (listingStreet !== targetStreet) return false;
+
+  if (listingNumber === targetNumber) {
+    if (targetUnit && listingUnit) {
+      return listingUnit === targetUnit;
+    }
+    if (!targetUnit && !listingUnit) return true;
+    if (!targetUnit || !listingUnit) return true;
+  }
+
+  if (targetNumber && listingNorm.includes(targetNumber) && !targetUnit && !listingUnit) {
+    return true;
+  }
+
+  return false;
+}
+
+export async function lookupPropertyDetails(
+  address: string,
+  suburb: string,
+): Promise<PropertyLookupResult> {
+  const normalizedAddr = normalizeAddress(address);
+  const targetNumber = extractStreetNumber(normalizedAddr);
+  const targetStreet = extractStreetName(normalizedAddr);
+  const targetUnit = extractUnitNumber(normalizedAddr);
+
+  console.log(`🔍 Property lookup: "${address}" in ${suburb} → number="${targetNumber}" street="${targetStreet}" unit="${targetUnit}"`);
+
+  for (const channel of ["buy", "sold"] as const) {
+    try {
+      const listings = await scrapeListings({ suburb, channel });
+      console.log(`🔍 Searching ${listings.length} ${channel} listings for match...`);
+
+      for (const listing of listings) {
+        if (matchesAddress(listing.address, targetNumber, targetStreet, targetUnit)) {
+          console.log(`✅ Property match found in ${channel} listings: "${listing.address}"`);
+          return {
+            found: true,
+            source: channel,
+            address: listing.address,
+            bedrooms: listing.bedrooms,
+            bathrooms: listing.bathrooms,
+            parking: listing.parking,
+            landSize: listing.landSize,
+            propertyType: listing.propertyType,
+            price: listing.price,
+            imageUrl: listing.imageUrl,
+          };
+        }
+      }
+    } catch (err) {
+      console.error(`❌ Error searching ${channel} listings:`, err);
+    }
+  }
+
+  console.log(`❌ No match found for "${address}" in ${suburb}`);
+  return { found: false };
+}
+
 function medianOfArray(arr: number[]): number {
   if (arr.length === 0) return 0;
   const sorted = [...arr].sort((a, b) => a - b);

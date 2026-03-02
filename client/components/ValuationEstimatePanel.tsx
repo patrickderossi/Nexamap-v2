@@ -12,8 +12,13 @@ import {
   Bath,
   Car,
   RefreshCw,
+  CheckCircle2,
+  Info,
 } from "lucide-react";
-import { fetchPropertyValuation } from "@/lib/valuation-service";
+import {
+  fetchPropertyValuation,
+  lookupPropertyDetails,
+} from "@/lib/valuation-service";
 import type { SelectedParcel, PropertyValuation } from "../../shared/types";
 
 interface ValuationEstimatePanelProps {
@@ -76,14 +81,16 @@ function getConfidenceBorder(confidence?: string): string {
   }
 }
 
+type PanelPhase = "lookup" | "manual-input" | "valuation-loading" | "results";
+
 export function ValuationEstimatePanel({
   selectedParcel,
   propertyData,
   show = false,
-  onClose,
+  onClose: _onClose,
 }: ValuationEstimatePanelProps) {
+  const [phase, setPhase] = useState<PanelPhase>("lookup");
   const [valuation, setValuation] = useState<PropertyValuation | null>(null);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showComparables, setShowComparables] = useState(false);
   const requestIdRef = useRef(0);
@@ -91,40 +98,44 @@ export function ValuationEstimatePanel({
   const [bedrooms, setBedrooms] = useState<string>("");
   const [bathrooms, setBathrooms] = useState<string>("");
   const [parking, setParking] = useState<string>("");
-  const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [detectedSource, setDetectedSource] = useState<string | null>(null);
+  const [detectedAddress, setDetectedAddress] = useState<string | null>(null);
+  const [listingPrice, setListingPrice] = useState<string | null>(null);
+  const [autoDetected, setAutoDetected] = useState(false);
 
   const prevShowRef = useRef(show);
 
   useEffect(() => {
     requestIdRef.current++;
+    setPhase("lookup");
     setValuation(null);
     setError(null);
     setShowComparables(false);
-    setLoading(false);
     setBedrooms("");
     setBathrooms("");
     setParking("");
-    setHasSubmitted(false);
+    setDetectedSource(null);
+    setDetectedAddress(null);
+    setListingPrice(null);
+    setAutoDetected(false);
   }, [selectedParcel]);
 
   useEffect(() => {
     if (show && !prevShowRef.current) {
       requestIdRef.current++;
+      setPhase("lookup");
       setValuation(null);
       setError(null);
       setShowComparables(false);
-      setLoading(false);
-      setHasSubmitted(false);
+      setAutoDetected(false);
     }
     prevShowRef.current = show;
   }, [show]);
 
-  if (!show) return null;
-
   const suburb =
     selectedParcel?.data?.cadastralInfo?.locality ||
     selectedParcel?.data?.shire ||
-    "Unknown";
+    "";
 
   const rawLotSize =
     propertyData?.lotSize || selectedParcel?.data?.lotSize || selectedParcel?.data?.area;
@@ -138,16 +149,108 @@ export function ValuationEstimatePanel({
     lotSize = rawLotSize;
   }
 
-  const runValuation = () => {
-    if (!suburb || suburb === "Unknown" || lotSize <= 0) {
-      setError(
-        !suburb || suburb === "Unknown"
-          ? "Could not determine suburb for this property."
-          : "Could not determine lot size for this property.",
-      );
+  const buildAddress = (): string => {
+    const cad = selectedParcel?.data?.cadastralInfo;
+    if (!cad) return "";
+    const parts: string[] = [];
+    if (cad.road_number_1) parts.push(cad.road_number_1);
+    if (cad.road_name) parts.push(cad.road_name);
+    if (cad.road_type) parts.push(cad.road_type);
+    return parts.join(" ");
+  };
+
+  useEffect(() => {
+    if (!show || phase !== "lookup") return;
+
+    if (!suburb) {
+      setPhase("manual-input");
+      setError("Could not determine suburb for this property.");
       return;
     }
 
+    const address = buildAddress();
+    if (!address) {
+      setPhase("manual-input");
+      return;
+    }
+
+    const currentRequestId = ++requestIdRef.current;
+
+    devLog.log(`🔍 Auto-looking up property: "${address}" in ${suburb}`);
+
+    lookupPropertyDetails(address, suburb)
+      .then((result) => {
+        if (currentRequestId !== requestIdRef.current) return;
+
+        if (result.found) {
+          devLog.log(`✅ Property auto-detected:`, result);
+          if (result.bedrooms) setBedrooms(result.bedrooms.toString());
+          if (result.bathrooms) setBathrooms(result.bathrooms.toString());
+          if (result.parking) setParking(result.parking.toString());
+          setDetectedSource(result.source || null);
+          setDetectedAddress(result.address || null);
+          setListingPrice(result.price || null);
+          setAutoDetected(true);
+
+          runValuationWithDetails(
+            result.bedrooms,
+            result.bathrooms,
+            currentRequestId,
+          );
+        } else {
+          devLog.log(`❌ Property not found in listings, showing manual input`);
+          setPhase("manual-input");
+        }
+      })
+      .catch((err) => {
+        if (currentRequestId !== requestIdRef.current) return;
+        devLog.error("Property lookup failed:", err);
+        setPhase("manual-input");
+      });
+  }, [show, suburb, selectedParcel]);
+
+  const runValuationWithDetails = (
+    beds?: number,
+    baths?: number,
+    overrideRequestId?: number,
+  ) => {
+    if (!suburb || lotSize <= 0) {
+      setError(
+        !suburb
+          ? "Could not determine suburb for this property."
+          : "Could not determine lot size for this property.",
+      );
+      setPhase("manual-input");
+      return;
+    }
+
+    const currentRequestId = overrideRequestId ?? ++requestIdRef.current;
+    setValuation(null);
+    setError(null);
+    setPhase("valuation-loading");
+
+    fetchPropertyValuation(suburb, lotSize, beds, baths)
+      .then((result) => {
+        if (currentRequestId !== requestIdRef.current) return;
+        if (result.comparableCount === 0) {
+          setError(
+            `No sold comparables found in ${suburb}. Try a nearby suburb.`,
+          );
+          setPhase("manual-input");
+        } else {
+          setValuation(result);
+          setPhase("results");
+        }
+      })
+      .catch((err) => {
+        if (currentRequestId !== requestIdRef.current) return;
+        devLog.error("Valuation error:", err);
+        setError(err.message || "Failed to fetch valuation data.");
+        setPhase("manual-input");
+      });
+  };
+
+  const handleManualSubmit = () => {
     const beds = bedrooms ? parseInt(bedrooms, 10) : undefined;
     const baths = bathrooms ? parseInt(bathrooms, 10) : undefined;
 
@@ -160,63 +263,59 @@ export function ValuationEstimatePanel({
       return;
     }
 
-    const currentRequestId = ++requestIdRef.current;
-    setValuation(null);
-    setError(null);
-    setLoading(true);
-    setHasSubmitted(true);
-
-    devLog.log(
-      `💰 Fetching valuation estimate for ${suburb}, ${lotSize}m², ${beds || "?"} bed, ${baths || "?"} bath`,
-    );
-
-    fetchPropertyValuation(suburb, lotSize, beds, baths)
-      .then((result) => {
-        if (currentRequestId !== requestIdRef.current) return;
-        if (result.comparableCount === 0) {
-          setError(
-            `No sold comparables found in ${suburb}. Try a nearby suburb.`,
-          );
-        } else {
-          setValuation(result);
-        }
-      })
-      .catch((err) => {
-        if (currentRequestId !== requestIdRef.current) return;
-        devLog.error("Valuation error:", err);
-        setError(err.message || "Failed to fetch valuation data.");
-      })
-      .finally(() => {
-        if (currentRequestId !== requestIdRef.current) return;
-        setLoading(false);
-      });
+    setAutoDetected(false);
+    runValuationWithDetails(beds, baths);
   };
 
-  const handleRecalculate = () => {
-    setHasSubmitted(false);
+  const handleEditDetails = () => {
+    setPhase("manual-input");
     setValuation(null);
     setError(null);
   };
+
+  if (!show) return null;
 
   return (
     <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto">
       <div className="flex items-center gap-2 text-sm text-gray-600">
         <Home className="w-4 h-4" />
-        <span className="font-medium">{suburb}</span>
+        <span className="font-medium">{suburb || "Unknown"}</span>
         {lotSize > 0 && (
-          <span className="text-gray-400">
-            | {lotSize.toFixed(0)}m²
-          </span>
+          <span className="text-gray-400">| {lotSize.toFixed(0)}m²</span>
         )}
       </div>
 
-      {!hasSubmitted && !loading && (
+      {phase === "lookup" && (
         <div className="space-y-3">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-            <p className="text-xs text-blue-700">
-              Enter the property details below for accurate adjustments against
-              sold comparables. Leave blank to use suburb averages.
-            </p>
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full" />
+            <span>Searching listing data for this property...</span>
+          </div>
+          <div className="space-y-2 animate-pulse">
+            <div className="h-10 bg-gray-100 rounded-lg" />
+            <div className="h-8 bg-gray-100 rounded-lg w-3/4" />
+          </div>
+        </div>
+      )}
+
+      {phase === "manual-input" && (
+        <div className="space-y-3">
+          {error && (
+            <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+          )}
+
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+            <div className="flex items-start gap-2">
+              <Info className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-700">
+                This property wasn't found in current listings. Enter the
+                details below for accurate valuation adjustments, or leave blank
+                to use suburb averages.
+              </p>
+            </div>
           </div>
 
           <div className="grid grid-cols-3 gap-2">
@@ -268,7 +367,7 @@ export function ValuationEstimatePanel({
           </div>
 
           <button
-            onClick={runValuation}
+            onClick={handleManualSubmit}
             className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
           >
             <DollarSign className="w-4 h-4" />
@@ -277,8 +376,24 @@ export function ValuationEstimatePanel({
         </div>
       )}
 
-      {loading && (
+      {phase === "valuation-loading" && (
         <div className="space-y-3">
+          {autoDetected && detectedAddress && (
+            <div className="flex items-start gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+              <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
+              <div className="text-xs text-green-700">
+                <p className="font-medium">
+                  Property found in {detectedSource === "sold" ? "sold" : "active"} listings
+                </p>
+                <p className="mt-0.5">
+                  {bedrooms && `${bedrooms} bed`}
+                  {bathrooms && ` · ${bathrooms} bath`}
+                  {parking && ` · ${parking} car`}
+                  {listingPrice && ` · ${listingPrice}`}
+                </p>
+              </div>
+            </div>
+          )}
           <div className="flex items-center gap-2 text-sm text-gray-500">
             <div className="animate-spin h-4 w-4 border-2 border-emerald-500 border-t-transparent rounded-full" />
             <span>Analysing sold comparables...</span>
@@ -291,43 +406,24 @@ export function ValuationEstimatePanel({
         </div>
       )}
 
-      {error && !loading && (
-        <div className="space-y-2">
-          <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-red-700">{error}</p>
-          </div>
-          {hasSubmitted && (
-            <div className="flex gap-2">
-              <button
-                onClick={handleRecalculate}
-                className="flex-1 py-1.5 text-sm font-medium text-emerald-600 border border-emerald-300 rounded-lg hover:bg-emerald-50 transition-colors flex items-center justify-center gap-1"
-              >
-                <RefreshCw className="w-3 h-3" />
-                Edit Details
-              </button>
-              <button
-                onClick={runValuation}
-                className="flex-1 py-1.5 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors"
-              >
-                Retry
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {valuation && !loading && (
+      {phase === "results" && valuation && (
         <>
-          {(bedrooms || bathrooms || parking) && (
-            <div className="flex items-center gap-3 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
-              <span className="font-medium">Target:</span>
-              {bedrooms && <span>{bedrooms} bed</span>}
-              {bathrooms && <span>{bathrooms} bath</span>}
-              {parking && <span>{parking} car</span>}
+          {autoDetected && detectedAddress && (
+            <div className="flex items-start gap-2 p-2.5 bg-green-50 border border-green-200 rounded-lg">
+              <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 text-xs text-green-700">
+                <span className="font-medium">Auto-detected</span>
+                {" from "}
+                {detectedSource === "sold" ? "sold" : "active"} listings:
+                {" "}
+                {bedrooms && `${bedrooms} bed`}
+                {bathrooms && ` · ${bathrooms} bath`}
+                {parking && ` · ${parking} car`}
+                {listingPrice && ` · ${listingPrice}`}
+              </div>
               <button
-                onClick={handleRecalculate}
-                className="ml-auto flex items-center gap-1 text-emerald-600 hover:text-emerald-700 font-medium"
+                onClick={handleEditDetails}
+                className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700 font-medium flex-shrink-0"
               >
                 <RefreshCw className="w-3 h-3" />
                 Edit
@@ -335,16 +431,33 @@ export function ValuationEstimatePanel({
             </div>
           )}
 
-          {!bedrooms && !bathrooms && !parking && (
-            <div className="flex items-center justify-between text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
-              <span>Using suburb averages (no property details entered)</span>
+          {!autoDetected && (
+            <div className="flex items-center justify-between text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+              <span>
+                {bedrooms || bathrooms || parking ? (
+                  <>
+                    Target: {bedrooms && `${bedrooms} bed`}
+                    {bathrooms && ` · ${bathrooms} bath`}
+                    {parking && ` · ${parking} car`}
+                  </>
+                ) : (
+                  "Using suburb averages"
+                )}
+              </span>
               <button
-                onClick={handleRecalculate}
+                onClick={handleEditDetails}
                 className="flex items-center gap-1 text-emerald-600 hover:text-emerald-700 font-medium"
               >
                 <RefreshCw className="w-3 h-3" />
                 Edit
               </button>
+            </div>
+          )}
+
+          {error && (
+            <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-700">{error}</p>
             </div>
           )}
 
