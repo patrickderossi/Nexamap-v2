@@ -6,22 +6,41 @@ import {
   Flame,
   ChevronLeft,
   ChevronRight,
+  DollarSign,
+  TrendingUp,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { generateSoilReport, getSoilSummary } from "@/lib/soil-classifier";
 import { PropertyItem } from "./PropertyCard";
 import { FeedbackModal } from "./FeedbackModal";
-import type { SelectedParcel, PropertyData } from "../../shared/types";
+import { Skeleton } from "@/components/ui/skeleton";
+import type { SelectedParcel, PropertyData, PropertyValuation } from "../../shared/types";
 
 interface PropertyInfoPanelProps {
   selectedParcel: SelectedParcel | null;
   address?: string;
   data?: PropertyData | null;
+  valuation?: PropertyValuation | null;
+  valuationLoading?: boolean;
+}
+
+function formatCurrency(value: number): string {
+  if (value >= 1_000_000) {
+    return `$${(value / 1_000_000).toFixed(2)}M`;
+  }
+  if (value >= 1_000) {
+    return `$${(value / 1_000).toFixed(0)}K`;
+  }
+  return `$${value.toLocaleString()}`;
 }
 
 export function PropertyInfoPanel({
   selectedParcel,
   address,
   data,
+  valuation,
+  valuationLoading,
 }: PropertyInfoPanelProps) {
   // Extract data from selectedParcel if not provided directly
   const propertyData = data || selectedParcel?.data;
@@ -66,6 +85,31 @@ export function PropertyInfoPanel({
               />
             )}
           </div>
+        </div>
+      )}
+
+      {/* Property Value Estimate */}
+      {valuationLoading && (
+        <div className="bg-green-50 rounded-lg p-3 border border-green-200">
+          <div className="flex items-center space-x-2 mb-2">
+            <DollarSign className="w-4 h-4 text-green-600" />
+            <h3 className="font-semibold text-gray-900 text-sm">Property Estimate</h3>
+          </div>
+          <Skeleton className="h-8 w-3/4 mb-2" />
+          <Skeleton className="h-4 w-1/2 mb-1" />
+          <Skeleton className="h-4 w-2/3" />
+        </div>
+      )}
+      {valuation && !valuationLoading && valuation.comparableCount > 0 && (
+        <ValuationSection valuation={valuation} />
+      )}
+      {valuation && !valuationLoading && valuation.comparableCount === 0 && (
+        <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+          <div className="flex items-center space-x-2 mb-1">
+            <DollarSign className="w-4 h-4 text-gray-400" />
+            <h3 className="font-semibold text-gray-900 text-sm">Property Estimate</h3>
+          </div>
+          <p className="text-xs text-gray-500">No comparable listings found in this suburb to generate an estimate.</p>
         </div>
       )}
 
@@ -185,6 +229,76 @@ Plan Number: ${selectedParcel?.data?.planNumber || "Unknown"}
           }
         />
       </div>
+    </div>
+  );
+}
+
+function ValuationSection({ valuation }: { valuation: PropertyValuation }) {
+  const [showComparables, setShowComparables] = useState(false);
+
+  return (
+    <div className="bg-green-50 rounded-lg p-3 border border-green-200">
+      <div className="flex items-center space-x-2 mb-2">
+        <DollarSign className="w-4 h-4 text-green-600" />
+        <h3 className="font-semibold text-gray-900 text-sm">Property Estimate</h3>
+      </div>
+
+      <div className="text-center py-2">
+        <p className="text-2xl font-bold text-green-700">
+          {formatCurrency(valuation.estimatedValue.low)} – {formatCurrency(valuation.estimatedValue.high)}
+        </p>
+        <p className="text-xs text-gray-500 mt-1">
+          Mid estimate: {formatCurrency(valuation.estimatedValue.mid)}
+        </p>
+      </div>
+
+      <div className="space-y-1 mt-2">
+        <div className="flex justify-between text-xs">
+          <span className="text-gray-600 flex items-center gap-1">
+            <TrendingUp className="w-3 h-3" /> Price/m²
+          </span>
+          <span className="font-medium text-gray-900">
+            ${valuation.pricePerSqm.median.toLocaleString()}/m²
+          </span>
+        </div>
+        <div className="flex justify-between text-xs">
+          <span className="text-gray-600">Range</span>
+          <span className="text-gray-700">
+            ${valuation.pricePerSqm.low.toLocaleString()} – ${valuation.pricePerSqm.high.toLocaleString()}/m²
+          </span>
+        </div>
+      </div>
+
+      {valuation.comparables.length > 0 && (
+        <div className="mt-3 pt-2 border-t border-green-200">
+          <button
+            onClick={() => setShowComparables(!showComparables)}
+            className="flex items-center gap-1 text-xs font-medium text-green-700 hover:text-green-800 w-full"
+          >
+            {showComparables ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            {valuation.comparableCount} comparable listing{valuation.comparableCount !== 1 ? "s" : ""}
+          </button>
+
+          {showComparables && (
+            <div className="mt-2 space-y-1.5">
+              {valuation.comparables.slice(0, 5).map((comp, i) => (
+                <div key={i} className="bg-white rounded p-2 border border-green-100 text-xs">
+                  <p className="font-medium text-gray-900 truncate">{comp.address}</p>
+                  <div className="flex justify-between mt-0.5 text-gray-600">
+                    <span>{formatCurrency(comp.price)}</span>
+                    <span>{comp.landSize}m²</span>
+                    <span>${comp.pricePerSqm.toLocaleString()}/m²</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <p className="text-[10px] text-gray-400 mt-2 leading-tight">
+        Estimate based on {valuation.comparableCount} active listing{valuation.comparableCount !== 1 ? "s" : ""} in {valuation.suburb}. Not a formal valuation.
+      </p>
     </div>
   );
 }

@@ -43,7 +43,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import authRoutes from "./routes/auth";
 import emailRoutes from "./routes/email";
-import { handleListingsSearch } from "./routes/listings";
+import { handleListingsSearch, handlePropertyValuation } from "./routes/listings";
 import { optionalAuth } from "./middleware/auth";
 
 export function createServer() {
@@ -274,6 +274,7 @@ export function createServer() {
 
   // Real estate listings routes
   app.get("/api/listings/search", handleListingsSearch);
+  app.get("/api/listings/estimate", handlePropertyValuation);
 
   app.get("/api/ping", (_req, res) => {
     res.json({

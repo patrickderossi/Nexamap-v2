@@ -366,6 +366,99 @@ export async function scrapeListings(
   }
 }
 
+export interface PropertyValuationResult {
+  estimatedValue: { low: number; mid: number; high: number };
+  pricePerSqm: { low: number; median: number; high: number };
+  comparableCount: number;
+  comparables: Array<{
+    address: string;
+    price: number;
+    landSize: number;
+    pricePerSqm: number;
+  }>;
+  suburb: string;
+}
+
+function percentile(sorted: number[], p: number): number {
+  const index = (p / 100) * (sorted.length - 1);
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  if (lower === upper) return sorted[lower];
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower);
+}
+
+export async function estimatePropertyValue(
+  suburb: string,
+  lotSize: number,
+): Promise<PropertyValuationResult> {
+  const listings = await scrapeListings({ suburb });
+
+  const comparables: Array<{
+    address: string;
+    price: number;
+    landSize: number;
+    pricePerSqm: number;
+  }> = [];
+
+  for (const listing of listings) {
+    const price = extractPriceNumber(listing.price);
+    if (!price || price < 50000) continue;
+
+    let landSizeNum = 0;
+    if (listing.landSize) {
+      const match = listing.landSize.match(/(\d+(?:\.\d+)?)/);
+      if (match) landSizeNum = parseFloat(match[1]);
+    }
+    if (landSizeNum < 50) continue;
+
+    comparables.push({
+      address: listing.address,
+      price,
+      landSize: landSizeNum,
+      pricePerSqm: Math.round(price / landSizeNum),
+    });
+  }
+
+  if (comparables.length === 0) {
+    return {
+      estimatedValue: { low: 0, mid: 0, high: 0 },
+      pricePerSqm: { low: 0, median: 0, high: 0 },
+      comparableCount: 0,
+      comparables: [],
+      suburb,
+    };
+  }
+
+  const ppsqmValues = comparables
+    .map((c) => c.pricePerSqm)
+    .sort((a, b) => a - b);
+
+  const low = percentile(ppsqmValues, 15);
+  const median = percentile(ppsqmValues, 50);
+  const high = percentile(ppsqmValues, 85);
+
+  comparables.sort(
+    (a, b) =>
+      Math.abs(a.landSize - lotSize) - Math.abs(b.landSize - lotSize),
+  );
+
+  return {
+    estimatedValue: {
+      low: Math.round(low * lotSize),
+      mid: Math.round(median * lotSize),
+      high: Math.round(high * lotSize),
+    },
+    pricePerSqm: {
+      low: Math.round(low),
+      median: Math.round(median),
+      high: Math.round(high),
+    },
+    comparableCount: comparables.length,
+    comparables: comparables.slice(0, 10),
+    suburb,
+  };
+}
+
 /**
  * Filter listings by size range (if available)
  */

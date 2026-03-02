@@ -41,7 +41,8 @@ import {
 import { toast } from "@/hooks/use-toast";
 import L from "leaflet";
 import { devLog } from "@/lib/logger";
-import type { SelectedParcel, PropertyData } from "../../shared/types";
+import { fetchPropertyValuation } from "@/lib/valuation-service";
+import type { SelectedParcel, PropertyData, PropertyValuation } from "../../shared/types";
 
 // Lazy load heavy analysis components
 const SubdivisionManager = lazy(() =>
@@ -101,6 +102,10 @@ export function MapFirstLayout({
   const [showYieldEstimator, setShowYieldEstimator] = useState(false);
   const [showFeasibilityStudy, setShowFeasibilityStudy] = useState(false);
   const [showSetbackAnalysis, setShowSetbackAnalysis] = useState(false);
+
+  // Property valuation state
+  const [valuation, setValuation] = useState<PropertyValuation | null>(null);
+  const [valuationLoading, setValuationLoading] = useState(false);
 
   // Real estate listings state
   const [listings, setListings] = useState<Listing[]>([]);
@@ -194,23 +199,37 @@ export function MapFirstLayout({
       );
       const formattedAddress = `Property at ${coordinates[0].toFixed(6)}, ${coordinates[1].toFixed(6)}`;
 
-      // Store selected parcel data for subdivision tool
       setSelectedParcel({
         data: propertyData,
         coordinates,
         address: formattedAddress,
-        geometry: rawGeometry, // Store raw ESRI geometry with rings for DXF export
+        geometry: rawGeometry,
       });
 
       if (onPropertySelect) {
         onPropertySelect(propertyData, coordinates, formattedAddress);
       }
 
-      // Enable Cadastre (Block Lines) layer to show property boundaries
       setLayers((prev) => ({ ...prev, placesAddresses: true }));
-
-      // Ensure sidebar is open when property is selected
       setSidebarOpen(true);
+
+      setValuation(null);
+      setValuationLoading(false);
+      const suburb = propertyData?.cadastralInfo?.locality;
+      const lotSizeStr = propertyData?.lotSize;
+      if (suburb && lotSizeStr) {
+        const lotSizeMatch = lotSizeStr.match(/([\d,]+(?:\.\d+)?)/);
+        if (lotSizeMatch) {
+          const lotSize = parseFloat(lotSizeMatch[1].replace(/,/g, ""));
+          if (lotSize > 0) {
+            setValuationLoading(true);
+            fetchPropertyValuation(suburb, lotSize)
+              .then((result) => setValuation(result))
+              .catch((err) => devLog.warn("Valuation fetch failed:", err))
+              .finally(() => setValuationLoading(false));
+          }
+        }
+      }
     },
     [onPropertySelect],
   );
@@ -601,6 +620,8 @@ export function MapFirstLayout({
             listingsLoading={listingsLoading}
             selectedListingId={selectedListing?.id}
             onSelectListing={setSelectedListing}
+            valuation={valuation}
+            valuationLoading={valuationLoading}
           />
         </div>
       </div>

@@ -27,6 +27,7 @@ export interface PropertyData {
   interiorAngles?: string[];
   area?: number | string;
   cadastralInfo?: CadastralInfo;
+  valuation?: PropertyValuation;
 }
 
 export interface EsriGeometry {
@@ -38,4 +39,19 @@ export interface SelectedParcel {
   coordinates: [number, number];
   address: string;
   geometry?: EsriGeometry;
+}
+
+export interface ComparableListing {
+  address: string;
+  price: number;
+  landSize: number;
+  pricePerSqm: number;
+}
+
+export interface PropertyValuation {
+  estimatedValue: { low: number; mid: number; high: number };
+  pricePerSqm: { low: number; median: number; high: number };
+  comparableCount: number;
+  comparables: ComparableListing[];
+  suburb: string;
 }
