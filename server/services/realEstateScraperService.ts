@@ -3,7 +3,7 @@ import axios from "axios";
 // Zyla API Configuration
 const ZYLA_API_KEY = process.env.ZYLA_API_KEY || "";
 const ZYLA_API_URL =
-  "https://zylalabs.com/api/1476/australia+realty+api/1221/get+properties+list";
+  "https://zylalabs.com/api/7297/australian+property+insights+api/11581/get+properties+list";
 
 console.log(`✅ Zyla API key loaded: ${ZYLA_API_KEY ? "Yes" : "No"}`);
 

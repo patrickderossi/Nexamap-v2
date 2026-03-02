@@ -51,7 +51,8 @@ A full-stack geospatial real estate and property analysis application focused on
 - **Client service**: `client/lib/valuation-service.ts` — `fetchPropertyValuation(suburb, lotSize)`
 - **UI**: Green card in `PropertyInfoPanel.tsx` with value range, price/m², expandable comparables, disclaimer
 - **Integration**: `MapFirstLayout.tsx` `handlePropertySelect` fires valuation fetch after property data loads (non-blocking)
-- **Status**: Code complete; requires active Zyla Australia Realty API subscription (`ZYLA_API_KEY` secret). Gracefully absent when API unavailable.
+- **Zyla API**: Australian Property Insights API (ID 7297), endpoint 11581 (Get Properties List). `ZYLA_API_KEY` secret required.
+- **Status**: Fully operational. Gracefully absent when API unavailable.
 
 ## Types
 - `shared/types.ts` defines `SelectedParcel`, `PropertyData`, `CadastralInfo`, `EsriGeometry`, `PropertyValuation`, `ComparableListing` — used across 14+ components
