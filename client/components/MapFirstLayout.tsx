@@ -218,6 +218,10 @@ export function MapFirstLayout({
       const currentRequestId = ++valuationRequestId.current;
       const suburb = propertyData?.cadastralInfo?.locality;
       const lotSizeStr = propertyData?.lotSize;
+      devLog.log("💰 Valuation check:", { suburb, lotSizeStr, hasCadastral: !!propertyData?.cadastralInfo });
+      if (!suburb || !lotSizeStr) {
+        devLog.log("💰 Skipping valuation - missing data:", { suburb, lotSizeStr });
+      }
       if (suburb && lotSizeStr) {
         const lotSizeMatch = lotSizeStr.match(/([\d,]+(?:\.\d+)?)/);
         if (lotSizeMatch) {

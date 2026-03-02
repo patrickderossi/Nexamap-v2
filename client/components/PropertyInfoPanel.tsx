@@ -45,7 +45,7 @@ export function PropertyInfoPanel({
   // Extract data from selectedParcel if not provided directly
   const propertyData = data || selectedParcel?.data;
 
-  if (!address) {
+  if (!address && !selectedParcel) {
     return (
       <div className="p-4 text-center text-gray-500 mt-8">
         <MapPin className="w-12 h-12 mx-auto mb-4 text-gray-300" />
