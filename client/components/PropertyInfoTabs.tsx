@@ -4,7 +4,7 @@ import { PropertyInfoPanel } from "./PropertyInfoPanel";
 import { ListingsSearchPanel } from "./ListingsSearchPanel";
 import type { Listing } from "./RealEstateListingsSidebar";
 import type { ListingsSearchFilters } from "./RealEstateListingsFilter";
-import type { SelectedParcel, PropertyData } from "../../shared/types";
+import type { SelectedParcel, PropertyData, PropertyValuation } from "../../shared/types";
 
 interface PropertyInfoTabsProps {
   selectedParcel: SelectedParcel | null;
@@ -15,6 +15,9 @@ interface PropertyInfoTabsProps {
   listingsLoading: boolean;
   selectedListingId?: string;
   onSelectListing?: (listing: Listing) => void;
+  valuationData?: PropertyValuation | null;
+  valuationLoading?: boolean;
+  valuationError?: string | null;
 }
 
 export function PropertyInfoTabs({
@@ -26,6 +29,9 @@ export function PropertyInfoTabs({
   listingsLoading,
   selectedListingId,
   onSelectListing,
+  valuationData,
+  valuationLoading,
+  valuationError,
 }: PropertyInfoTabsProps) {
   const [activeTab, setActiveTab] = useState<"property" | "listings">(
     "property",
@@ -83,6 +89,9 @@ export function PropertyInfoTabs({
             selectedParcel={selectedParcel}
             address={address}
             data={data}
+            valuationData={valuationData}
+            valuationLoading={valuationLoading}
+            valuationError={valuationError}
           />
         )}
         {activeTab === "listings" && (

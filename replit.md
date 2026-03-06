@@ -46,22 +46,25 @@ A full-stack geospatial real estate and property analysis application focused on
 - TLS config uses minimum TLSv1.2 (no insecure fallbacks)
 
 ## Valuation Estimate (Analysis Tool)
-- **Architecture**: DraggablePanel in right sidebar, same pattern as Lot Yield/Feasibility/Setback tools
-- **Button**: `ValuationEstimateButton.tsx` — emerald-themed, in MainToolbar under Analysis Tools
-- **Panel**: `ValuationEstimatePanel.tsx` — three-phase flow:
-  1. **Auto-lookup phase**: Searches Zyla buy+sold listings for the clicked property's address to auto-detect beds/baths/parking
-  2. **Auto-valuation**: If found, auto-fills details and immediately runs valuation
-  3. **Manual fallback**: If not found, shows input form for user to enter beds/baths/parking manually
+- **Two access modes**:
+  1. **Auto-inline** (PropertyInfoPanel): When a property is clicked, valuation auto-fetches using suburb + lot size from cadastral data and displays inline in the left sidebar Property tab. Shows loading skeleton, value range, price/m², confidence, expandable comparables, and error states.
+  2. **Manual DraggablePanel** (ValuationEstimatePanel): Triggered via button in right sidebar Analysis Tools. Three-phase flow: auto-lookup → auto-fill/manual input → results with beds/baths/parking adjustments.
+- **Data flow (inline)**: MapFirstLayout.handlePropertySelect → fetches valuation → passes valuationData/valuationLoading/valuationError through PropertyInfoTabs → PropertyInfoPanel → ValuationSection component
+- **Race condition protection**: Uses incrementing request ID ref to discard stale responses on rapid property changes
 - **Backend services** (`server/services/realEstateScraperService.ts`):
-  - `lookupPropertyDetails(address, suburb)` — searches buy then sold listings via address matching (normalised street names/numbers)
-  - `estimatePropertyValue(suburb, lotSize, beds?, baths?)` — weighted-median with similarity scoring, suburb-tiered land values ($250/$400/$600 per sqm for outer/mid/inner suburbs)
+  - `lookupPropertyDetails(address, suburb)` — searches buy then sold listings via address matching
+  - `estimatePropertyValue(suburb, lotSize, beds?, baths?)` — weighted-median with similarity scoring, suburb-tiered land values
 - **Endpoints**:
   - `GET /api/listings/property-lookup?address=X&suburb=Y` — auto-detect property details
   - `GET /api/listings/estimate?suburb=X&lotSize=Y&bedrooms=N&bathrooms=N` — run valuation
 - **Client service**: `client/lib/valuation-service.ts` — `lookupPropertyDetails()` + `fetchPropertyValuation()`
 - **Zyla API**: Australian Property Insights API (ID 7297), endpoint 11581. `ZYLA_API_KEY` secret required.
-- **Valuation logic**: Adapted from Chrome extension — similarity scoring (beds ±30pts, baths ±5pts, perfect match +50pts), suburb-tiered land values, parking adjustments, weighted median, confidence levels
-- **Status**: Fully operational with auto-detection and manual fallback
+
+## Deployment
+- **Build**: `npm run build` (Vite SPA + server bundle)
+- **Run**: `node dist/server/node-build.mjs`
+- **Port**: Must use port 5000 (both dev and production) — Replit forwards 5000 → external port 80
+- **Express 5**: Uses `/{*splat}` syntax for catch-all routes (bare `*` is invalid in path-to-regexp v8+)
 
 ## Types
 - `shared/types.ts` defines `SelectedParcel`, `PropertyData`, `CadastralInfo`, `EsriGeometry`, `PropertyValuation`, `ComparableListing` — used across 14+ components

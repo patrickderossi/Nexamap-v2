@@ -6,22 +6,42 @@ import {
   Flame,
   ChevronLeft,
   ChevronRight,
+  DollarSign,
+  ChevronDown,
+  ChevronUp,
+  TrendingUp,
 } from "lucide-react";
 import { generateSoilReport, getSoilSummary } from "@/lib/soil-classifier";
 import { PropertyItem } from "./PropertyCard";
 import { FeedbackModal } from "./FeedbackModal";
-import type { SelectedParcel, PropertyData } from "../../shared/types";
+import type { SelectedParcel, PropertyData, PropertyValuation } from "../../shared/types";
+
+function formatCurrency(value: number): string {
+  if (value >= 1_000_000) {
+    return `$${(value / 1_000_000).toFixed(2)}M`;
+  }
+  if (value >= 1_000) {
+    return `$${Math.round(value / 1_000)}K`;
+  }
+  return `$${Math.round(value)}`;
+}
 
 interface PropertyInfoPanelProps {
   selectedParcel: SelectedParcel | null;
   address?: string;
   data?: PropertyData | null;
+  valuationData?: PropertyValuation | null;
+  valuationLoading?: boolean;
+  valuationError?: string | null;
 }
 
 export function PropertyInfoPanel({
   selectedParcel,
   address,
   data,
+  valuationData,
+  valuationLoading,
+  valuationError,
 }: PropertyInfoPanelProps) {
   // Extract data from selectedParcel if not provided directly
   const propertyData = data || selectedParcel?.data;
@@ -82,6 +102,34 @@ export function PropertyInfoPanel({
           />
         </div>
       </div>
+
+      {valuationLoading && (
+        <div className="bg-green-50 rounded-lg p-3 border border-green-200">
+          <div className="flex items-center space-x-2 mb-3">
+            <DollarSign className="w-4 h-4 text-green-600" />
+            <h3 className="font-semibold text-gray-900 text-sm">Property Estimate</h3>
+          </div>
+          <div className="space-y-2 animate-pulse">
+            <div className="h-8 bg-green-200 rounded w-3/4" />
+            <div className="h-4 bg-green-100 rounded w-1/2" />
+            <div className="h-4 bg-green-100 rounded w-2/3" />
+          </div>
+        </div>
+      )}
+
+      {valuationData && !valuationLoading && (
+        <ValuationSection valuation={valuationData} />
+      )}
+
+      {valuationError && !valuationLoading && !valuationData && (
+        <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+          <div className="flex items-center space-x-2 mb-1">
+            <DollarSign className="w-4 h-4 text-gray-400" />
+            <h3 className="font-semibold text-gray-900 text-sm">Property Estimate</h3>
+          </div>
+          <p className="text-xs text-gray-500">{valuationError}</p>
+        </div>
+      )}
 
       {/* Zoning */}
       <div className="bg-gray-50 rounded-lg p-3">
@@ -185,6 +233,88 @@ Plan Number: ${selectedParcel?.data?.planNumber || "Unknown"}
           }
         />
       </div>
+    </div>
+  );
+}
+
+function ValuationSection({ valuation }: { valuation: PropertyValuation }) {
+  const [showComparables, setShowComparables] = useState(false);
+  const comparablesToShow = valuation.comparables.slice(0, 5);
+
+  return (
+    <div className="bg-green-50 rounded-lg p-3 border border-green-200">
+      <div className="flex items-center space-x-2 mb-2">
+        <DollarSign className="w-4 h-4 text-green-600" />
+        <h3 className="font-semibold text-gray-900 text-sm">Property Estimate</h3>
+      </div>
+
+      <div className="bg-white rounded-lg p-3 border border-green-100 mb-2">
+        <div className="text-center">
+          <p className="text-2xl font-bold text-green-700">
+            {formatCurrency(valuation.estimatedValue.low)} &ndash; {formatCurrency(valuation.estimatedValue.high)}
+          </p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Mid-point: {formatCurrency(valuation.estimatedValue.mid)}
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex justify-between text-xs">
+          <span className="text-gray-600">Price per m²</span>
+          <span className="font-medium text-gray-900">
+            ${Math.round(valuation.pricePerSqm.median).toLocaleString()}/m²
+          </span>
+        </div>
+        <div className="flex justify-between text-xs">
+          <span className="text-gray-600">Comparables used</span>
+          <span className="font-medium text-gray-900">{valuation.comparableCount}</span>
+        </div>
+        {valuation.confidence && (
+          <div className="flex justify-between text-xs">
+            <span className="text-gray-600">Confidence</span>
+            <span className={`font-medium ${
+              valuation.confidence === "High" ? "text-green-600" :
+              valuation.confidence === "Medium" ? "text-yellow-600" : "text-red-600"
+            }`}>
+              {valuation.confidence}
+              {valuation.confidenceScore ? ` (${valuation.confidenceScore}%)` : ""}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {comparablesToShow.length > 0 && (
+        <div className="mt-2">
+          <button
+            onClick={() => setShowComparables(!showComparables)}
+            className="flex items-center gap-1 text-xs font-medium text-green-700 hover:text-green-900 transition-colors w-full"
+          >
+            <TrendingUp className="w-3 h-3" />
+            <span>Comparable listings ({comparablesToShow.length})</span>
+            {showComparables ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
+          </button>
+
+          {showComparables && (
+            <div className="mt-1.5 space-y-1.5">
+              {comparablesToShow.map((comp, i) => (
+                <div key={i} className="bg-white rounded p-2 border border-gray-200 text-xs">
+                  <p className="font-medium text-gray-900 truncate">{comp.address}</p>
+                  <div className="flex justify-between mt-0.5 text-gray-600">
+                    <span>{formatCurrency(comp.price)}</span>
+                    <span>{comp.landSize}m²</span>
+                    <span>${Math.round(comp.pricePerSqm)}/m²</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <p className="text-[10px] text-gray-400 mt-2 leading-tight">
+        Estimate based on {valuation.comparableCount} sold listings in {valuation.suburb}. Not a formal valuation.
+      </p>
     </div>
   );
 }
