@@ -52,6 +52,10 @@ export function createServer() {
   // Trust proxy for accurate IP addresses behind reverse proxies
   app.set("trust proxy", 1);
 
+  app.get("/health", (_req, res) => {
+    res.status(200).json({ status: "ok" });
+  });
+
   // Rate limiting - reasonable limits to prevent abuse while allowing normal usage
   const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
@@ -226,6 +230,9 @@ export function createServer() {
             hostname.endsWith(".builder.io") ||
             hostname === "builder.io" ||
             hostname.endsWith(".fly.dev") ||
+            hostname.endsWith(".replit.app") ||
+            hostname.endsWith(".repl.co") ||
+            hostname.endsWith(".replit.dev") ||
             hostname === "localhost" ||
             hostname === "127.0.0.1";
 
