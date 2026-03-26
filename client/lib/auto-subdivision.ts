@@ -32,7 +32,7 @@ export interface AutoLot {
 
 export interface AutoSubdivisionConfig {
   id: string;
-  type: "side-by-side" | "battleaxe" | "strata-cp";
+  type: "side-by-side" | "battleaxe" | "strata-access" | "strata-cp";
   name: string;
   description: string;
   lots: AutoLot[];
@@ -92,22 +92,47 @@ export function detectFrontBoundary(
     edges.push({ index: i, start, end, length, midpoint });
   }
 
-  // Use all meaningful edges as candidates (skip slivers < 2 m)
+  // Use all meaningful edges (skip slivers < 2 m)
   const meaningful = edges.filter((e) => e.length > 2);
 
-  // Sort by latitude ascending — southernmost edge is most likely street-facing in Perth
-  const byLatitude = [...meaningful].sort(
-    (a, b) => a.midpoint[1] - b.midpoint[1]
-  );
+  // For angled blocks we can't just use latitude — use a score that combines:
+  //   1. How southerly the midpoint is (primary for Perth)
+  //   2. How "exterior-facing" the edge is (edges whose outward normal points most south)
+  //   3. Prefer edges that are part of the boundary of the parcel's bounding box (convex hull face)
+  const bbox = turf.bbox(turf.feature(polygon));
+  const bboxMinLat = bbox[1];
+  const bboxMaxLat = bbox[3];
+  const bboxLatRange = bboxMaxLat - bboxMinLat || 1;
 
-  const detected = byLatitude[0];
+  // For each edge, compute a "street-facing score":
+  //   lower = more likely to be the street
+  const scored = meaningful.map((e) => {
+    // Normalised distance from the south boundary of the bounding box
+    const latNorm = (e.midpoint[1] - bboxMinLat) / bboxLatRange; // 0 = south, 1 = north
+
+    // Edge direction: how horizontal (east-west) is the edge?
+    // A perfectly horizontal edge has |dy|/(|dx|+|dy|) = 0
+    const dx = Math.abs(e.end[0] - e.start[0]);
+    const dy = Math.abs(e.end[1] - e.start[1]);
+    const horizontality = dy / (dx + dy + 1e-9); // 0=horizontal, 1=vertical
+
+    // Combined score: weight southerliness heavily, horizontality as tiebreaker
+    // For angled blocks the horizontality matters less, so we cap its contribution
+    return { edge: e, score: latNorm * 3 + horizontality * 0.5 };
+  });
+
+  scored.sort((a, b) => a.score - b.score);
+  const detected = scored[0].edge;
 
   const parcelFeature = turf.feature(polygon);
   const { depthM } = computeLotDimensions(parcelFeature, detected.index);
 
+  // Candidates sorted by score (most likely first)
+  const candidatesSorted = scored.map((s) => s.edge);
+
   return {
     detectedIndex: detected.index,
-    candidateIndices: byLatitude.map((e) => e.index),
+    candidateIndices: candidatesSorted.map((e) => e.index),
     edges,
     widthM: Math.round(detected.length),
     depthM: Math.round(depthM),
@@ -407,10 +432,126 @@ function generateSideBySide(
 }
 
 // =====================
-// Battleaxe config
+// Battleaxe — strictly 1 front lot + 3m handle + 1 rear lot (always 2 private lots)
 // =====================
 
 function generateBattleaxe(
+  parcelPolygon: Feature<Polygon>,
+  frontEdgeIndex: number,
+  minArea: number,
+  minFrontage: number
+): AutoSubdivisionConfig | null {
+  const coords = parcelPolygon.geometry.coordinates[0];
+  const n = coords.length - 1;
+  const frontStart = coords[frontEdgeIndex] as [number, number];
+  const frontEnd = coords[(frontEdgeIndex + 1) % n] as [number, number];
+
+  const { u_deg, p_deg } = getDirectionVectors(
+    frontStart,
+    frontEnd,
+    parcelPolygon.geometry
+  );
+
+  const widthM = turf.distance(turf.point(frontStart), turf.point(frontEnd), {
+    units: "meters",
+  });
+  const { depthM } = computeLotDimensions(parcelPolygon, frontEdgeIndex);
+
+  const handleW = BATTLEAXE_HANDLE_WIDTH_M;
+  const mainW = widthM - handleW;
+
+  if (mainW < Math.max(minFrontage, 6) + 1) return null;
+
+  const halfDepth = depthM / 2;
+  const lots: AutoLot[] = [];
+
+  // Front lot: first half of depth, main block width
+  const frontSlice = createWidthDepthSlice(
+    parcelPolygon, frontStart, u_deg, p_deg,
+    -BIG_M, mainW,
+    -BIG_M, halfDepth
+  );
+  if (!frontSlice) return null;
+  const frontArea = turf.area(frontSlice);
+  const frontIssues: string[] = [];
+  if (frontArea < minArea) frontIssues.push(`Area ${Math.round(frontArea)} m² < min ${minArea} m²`);
+  if (mainW < minFrontage) frontIssues.push(`Frontage ${Math.round(mainW)} m < min ${minFrontage} m`);
+  lots.push({
+    id: "lot_1",
+    name: "Lot 1 (Street)",
+    type: "private",
+    geometry: frontSlice.geometry,
+    area: Math.round(frontArea),
+    frontage: Math.round(mainW),
+    compliant: frontIssues.length === 0,
+    issues: frontIssues,
+  });
+
+  // Rear lot: second half of depth, main block width
+  const rearSlice = createWidthDepthSlice(
+    parcelPolygon, frontStart, u_deg, p_deg,
+    -BIG_M, mainW,
+    halfDepth, depthM + BIG_M
+  );
+  if (!rearSlice) return null;
+  const rearArea = turf.area(rearSlice);
+  const rearIssues: string[] = [];
+  if (rearArea < minArea) rearIssues.push(`Area ${Math.round(rearArea)} m² < min ${minArea} m²`);
+  lots.push({
+    id: "lot_2",
+    name: "Lot 2 (Rear)",
+    type: "private",
+    geometry: rearSlice.geometry,
+    area: Math.round(rearArea),
+    frontage: 0,
+    compliant: rearIssues.length === 0,
+    issues: rearIssues,
+  });
+
+  // Access handle — right side, full depth
+  const handleSlice = createWidthSlice(
+    parcelPolygon, frontStart, u_deg, p_deg,
+    mainW, widthM + BIG_M
+  );
+  if (handleSlice) {
+    lots.push({
+      id: "cp_handle",
+      name: "Access Handle (CP)",
+      type: "common-property",
+      geometry: handleSlice.geometry,
+      area: Math.round(turf.area(handleSlice)),
+      frontage: handleW,
+      compliant: true,
+      issues: [],
+    });
+  }
+
+  const privateLots = lots.filter((l) => l.type === "private");
+  const overallCompliant = privateLots.every((l) => l.compliant);
+
+  return {
+    id: "battleaxe",
+    type: "battleaxe",
+    name: "Battleaxe / Flag Lot",
+    description: `1 street lot + 1 rear lot, accessed via ${handleW} m side handle (CP)`,
+    lots,
+    totalLots: lots.length,
+    privateLotCount: 2,
+    overallCompliant,
+    frontEdgeIndex,
+    widthM: Math.round(widthM),
+    depthM: Math.round(depthM),
+    divisionType: "depth",
+    divisionPointsM: [halfDepth],
+    handleWidthM: handleW,
+  };
+}
+
+// =====================
+// Strata Side Access — N lots stacked front-to-rear + side handle (CP)
+// =====================
+
+function generateStrataAccess(
   parcelPolygon: Feature<Polygon>,
   frontEdgeIndex: number,
   totalLots: number,
@@ -433,43 +574,31 @@ function generateBattleaxe(
   });
   const { depthM } = computeLotDimensions(parcelPolygon, frontEdgeIndex);
 
-  // Handle runs the full depth on the RIGHT side of the front edge
   const handleW = BATTLEAXE_HANDLE_WIDTH_M;
   const mainW = widthM - handleW;
 
   if (mainW < Math.max(minFrontage, 6) + 1) return null;
 
-  // Depth divided equally among all private lots
   const lotDepthM = depthM / totalLots;
   const lots: AutoLot[] = [];
   const divisionPointsM: number[] = [];
 
-  // Private lots — stacked front-to-rear, occupying the main block (left of handle)
   for (let i = 0; i < totalLots; i++) {
     const dStart_m = i === 0 ? -BIG_M : i * lotDepthM;
     const dEnd_m = i === totalLots - 1 ? depthM + BIG_M : (i + 1) * lotDepthM;
 
     if (i < totalLots - 1) divisionPointsM.push((i + 1) * lotDepthM);
 
-    // In u: extend to -BIG_M so the first depth slice captures any irregular western edge
     const slice = createWidthDepthSlice(
-      parcelPolygon,
-      frontStart,
-      u_deg,
-      p_deg,
-      -BIG_M,  // extend past the left end of the front edge
-      mainW,
-      dStart_m,
-      dEnd_m
+      parcelPolygon, frontStart, u_deg, p_deg,
+      -BIG_M, mainW,
+      dStart_m, dEnd_m
     );
     if (!slice) return null;
 
     const area = turf.area(slice);
     const issues: string[] = [];
-
-    if (area < minArea)
-      issues.push(`Area ${Math.round(area)} m² < min ${minArea} m²`);
-
+    if (area < minArea) issues.push(`Area ${Math.round(area)} m² < min ${minArea} m²`);
     if (i === 0 && mainW < minFrontage)
       issues.push(`Frontage ${Math.round(mainW)} m < min ${minFrontage} m`);
 
@@ -485,25 +614,17 @@ function generateBattleaxe(
     });
   }
 
-  // Handle / access strip (Common Property) — right side, full depth
-  // Extend right beyond widthM to capture any irregular eastern edge
   const handleSlice = createWidthSlice(
-    parcelPolygon,
-    frontStart,
-    u_deg,
-    p_deg,
-    mainW,
-    widthM + BIG_M
+    parcelPolygon, frontStart, u_deg, p_deg,
+    mainW, widthM + BIG_M
   );
-
   if (handleSlice) {
-    const handleArea = turf.area(handleSlice);
     lots.push({
       id: "cp_handle",
-      name: "Access Handle (CP)",
+      name: "Side Driveway (CP)",
       type: "common-property",
       geometry: handleSlice.geometry,
-      area: Math.round(handleArea),
+      area: Math.round(turf.area(handleSlice)),
       frontage: handleW,
       compliant: true,
       issues: [],
@@ -514,10 +635,10 @@ function generateBattleaxe(
   const overallCompliant = privateLots.every((l) => l.compliant);
 
   return {
-    id: "battleaxe",
-    type: "battleaxe",
-    name: "Battleaxe / Flag Lot",
-    description: `${totalLots} lots stacked front-to-rear + ${handleW} m access handle (CP) on right`,
+    id: "strata-access",
+    type: "strata-access",
+    name: "Strata — Side Access",
+    description: `${totalLots} lots stacked front-to-rear, shared ${handleW} m side driveway (CP)`,
     lots,
     totalLots: lots.length,
     privateLotCount: privateLots.length,
@@ -856,6 +977,82 @@ export function rebuildConfigFromDivisions(
     };
   }
 
+  // strata-access uses the same depth-slicing logic as battleaxe rebuild
+  if (config.type === "strata-access") {
+    const handleW = config.handleWidthM ?? BATTLEAXE_HANDLE_WIDTH_M;
+    const mainW = widthM - handleW;
+    const boundaries = [0, ...newDivisions, depthM];
+    const lots: AutoLot[] = [];
+
+    for (let i = 0; i < boundaries.length - 1; i++) {
+      const dStart_m = i === 0 ? -BIG_M : boundaries[i];
+      const dEnd_m =
+        i === boundaries.length - 2 ? depthM + BIG_M : boundaries[i + 1];
+      const lotDepthM = boundaries[i + 1] - boundaries[i];
+
+      const slice = createWidthDepthSlice(
+        parcelPolygon,
+        frontStart,
+        u_deg,
+        p_deg,
+        -BIG_M,
+        mainW,
+        dStart_m,
+        dEnd_m
+      );
+      if (!slice) return null;
+
+      const area = turf.area(slice);
+      const issues: string[] = [];
+      if (area < minArea)
+        issues.push(`Area ${Math.round(area)} m² < min ${minArea} m²`);
+      if (i === 0 && mainW < minFrontage)
+        issues.push(`Frontage ${Math.round(mainW)} m < min ${minFrontage} m`);
+
+      lots.push({
+        id: `lot_${i + 1}`,
+        name: i === 0 ? `Lot 1 (Street)` : `Lot ${i + 1} (Rear)`,
+        type: "private",
+        geometry: slice.geometry,
+        area: Math.round(area),
+        frontage: i === 0 ? Math.round(mainW) : Math.round(lotDepthM),
+        compliant: issues.length === 0,
+        issues,
+      });
+    }
+
+    const handleSlice = createWidthSlice(
+      parcelPolygon,
+      frontStart,
+      u_deg,
+      p_deg,
+      mainW,
+      widthM + BIG_M
+    );
+    if (handleSlice) {
+      lots.push({
+        id: "cp_handle",
+        name: "Side Driveway (CP)",
+        type: "common-property",
+        geometry: handleSlice.geometry,
+        area: Math.round(turf.area(handleSlice)),
+        frontage: handleW,
+        compliant: true,
+        issues: [],
+      });
+    }
+
+    const privateLots = lots.filter((l) => l.type === "private");
+    return {
+      ...config,
+      lots,
+      totalLots: lots.length,
+      privateLotCount: privateLots.length,
+      overallCompliant: privateLots.every((l) => l.compliant),
+      divisionPointsM: newDivisions,
+    };
+  }
+
   return null;
 }
 
@@ -890,14 +1087,24 @@ export function generateAutoSubdivisionConfigs(
   if (sideBySide) configs.push(sideBySide);
 
   if (targetLots >= 2) {
+    // Battleaxe is always 2 private lots (1 front + 1 rear) regardless of targetLots
     const battleaxe = generateBattleaxe(
+      parcelPolygon,
+      frontEdgeIndex,
+      minArea,
+      minFrontage
+    );
+    if (battleaxe) configs.push(battleaxe);
+
+    // Strata Side Access: N lots stacked + side driveway CP
+    const strataAccess = generateStrataAccess(
       parcelPolygon,
       frontEdgeIndex,
       targetLots,
       minArea,
       minFrontage
     );
-    if (battleaxe) configs.push(battleaxe);
+    if (strataAccess) configs.push(strataAccess);
 
     const strataCP = generateStrataCP(
       parcelPolygon,

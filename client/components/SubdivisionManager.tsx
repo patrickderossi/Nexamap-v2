@@ -76,6 +76,7 @@ export function SubdivisionManager({
   const drawnLineLayersRef = useRef<L.Polyline[]>([]);
   const generatedLotLayersRef = useRef<L.Layer[]>([]);
   const autoHandleLayersRef = useRef<L.Layer[]>([]);
+  const edgeHighlightLayerRef = useRef<L.Polyline | null>(null);
 
   // Ref holding the active auto-subdivision config (for handle dragging)
   const activeAutoConfigRef = useRef<ApplyableConfig | null>(null);
@@ -400,6 +401,12 @@ export function SubdivisionManager({
     autoHandleLayersRef.current = [];
     activeAutoConfigRef.current = null;
 
+    // Clear edge highlight
+    if (edgeHighlightLayerRef.current) {
+      map.removeLayer(edgeHighlightLayerRef.current);
+      edgeHighlightLayerRef.current = null;
+    }
+
     // Clear visual feedback
     if (rubberBandLineRef.current) {
       map.removeLayer(rubberBandLineRef.current);
@@ -482,6 +489,36 @@ export function SubdivisionManager({
       generatedLotLayersRef.current.push(lotLayer, labelMarker);
     },
     [map]
+  );
+
+  // ─────────────────────────────────────────────────────────────────
+  // Edge highlight — called by AutoSubdividePanel on edge hover
+  // ─────────────────────────────────────────────────────────────────
+  const highlightEdge = useCallback(
+    (edgeIndex: number | null) => {
+      if (!map) return;
+      // Remove previous highlight
+      if (edgeHighlightLayerRef.current) {
+        map.removeLayer(edgeHighlightLayerRef.current);
+        edgeHighlightLayerRef.current = null;
+      }
+      if (edgeIndex === null || !parentLot?.geometry) return;
+
+      const coords = parentLot.geometry.coordinates[0];
+      const n = coords.length - 1;
+      if (edgeIndex < 0 || edgeIndex >= n) return;
+
+      const start = coords[edgeIndex] as [number, number];
+      const end = coords[(edgeIndex + 1) % n] as [number, number];
+
+      const polyline = L.polyline(
+        [L.latLng(start[1], start[0]), L.latLng(end[1], end[0])],
+        { color: "#EF4444", weight: 6, opacity: 0.9, dashArray: undefined }
+      ).addTo(map);
+
+      edgeHighlightLayerRef.current = polyline;
+    },
+    [map, parentLot]
   );
 
   // Apply auto-generated lots from AutoSubdividePanel
@@ -1362,6 +1399,7 @@ export function SubdivisionManager({
               applyAutoLots(payload);
               setShowAutoSubdivide(false);
             }}
+            onEdgeHighlight={highlightEdge}
             onClose={() => setShowAutoSubdivide(false)}
           />
         </DraggablePanel>

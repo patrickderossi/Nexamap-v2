@@ -16,6 +16,7 @@ import {
   Flag,
   RotateCw,
   GitBranch,
+  Rows3,
 } from "lucide-react";
 import * as turf from "@turf/turf";
 import {
@@ -44,6 +45,7 @@ export interface ApplyableConfig {
 interface AutoSubdividePanelProps {
   parentLot: ParentLot | undefined;
   onApplyConfig: (payload: ApplyableConfig) => void;
+  onEdgeHighlight?: (edgeIndex: number | null) => void;
   onClose?: () => void;
 }
 
@@ -53,6 +55,8 @@ function ConfigTypeIcon({ type }: { type: AutoSubdivisionConfig["type"] }) {
   if (type === "side-by-side")
     return <Layers className="h-4 w-4 text-blue-600" />;
   if (type === "battleaxe") return <Flag className="h-4 w-4 text-orange-600" />;
+  if (type === "strata-access")
+    return <Rows3 className="h-4 w-4 text-teal-600" />;
   return <GitBranch className="h-4 w-4 text-purple-600" />;
 }
 
@@ -102,6 +106,8 @@ function ConfigCard({
       ? "border-blue-200 bg-blue-50/30"
       : config.type === "battleaxe"
       ? "border-orange-200 bg-orange-50/30"
+      : config.type === "strata-access"
+      ? "border-teal-200 bg-teal-50/30"
       : "border-purple-200 bg-purple-50/30";
 
   const applyClass =
@@ -109,6 +115,8 @@ function ConfigCard({
       ? "bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white"
       : config.type === "battleaxe"
       ? "bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white"
+      : config.type === "strata-access"
+      ? "bg-gradient-to-r from-teal-600 to-teal-700 hover:from-teal-700 hover:to-teal-800 text-white"
       : "bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white";
 
   return (
@@ -239,10 +247,11 @@ function ConfigCard({
 export function AutoSubdividePanel({
   parentLot,
   onApplyConfig,
+  onEdgeHighlight,
 }: AutoSubdividePanelProps) {
   const [targetLots, setTargetLots] = useState(2);
   const [frontEdgeIndex, setFrontEdgeIndex] = useState<number | null>(null);
-  const [rotationStep, setRotationStep] = useState(0); // 0 = detected, 1+ = rotated
+  const [isRotated, setIsRotated] = useState(false);
   const [frontBoundaryInfo, setFrontBoundaryInfo] =
     useState<FrontBoundaryInfo | null>(null);
   const [configs, setConfigs] = useState<AutoSubdivisionConfig[]>([]);
@@ -310,21 +319,20 @@ export function AutoSubdividePanel({
   const handleRotate = useCallback(() => {
     if (!parentLot?.geometry || !frontBoundaryInfo) return;
 
-    const nextStep = rotationStep + 1;
-    setRotationStep(nextStep);
+    const nextRotated = !isRotated;
+    setIsRotated(nextRotated);
 
+    // Toggle between the detected front edge and its most-perpendicular counterpart
     const detectedIndex = frontBoundaryInfo.detectedIndex;
-    const newEdge = getRotatedFrontEdgeIndex(
-      parentLot.geometry,
-      detectedIndex,
-      nextStep
-    );
+    const newEdge = nextRotated
+      ? getRotatedFrontEdgeIndex(parentLot.geometry, detectedIndex, 1)
+      : detectedIndex;
 
     setFrontEdgeIndex(newEdge);
     setGenerated(false);
     setConfigs([]);
     handleGenerate(newEdge);
-  }, [parentLot, frontBoundaryInfo, rotationStep, handleGenerate]);
+  }, [parentLot, frontBoundaryInfo, isRotated, handleGenerate]);
 
   const handleApply = useCallback(
     (config: AutoSubdivisionConfig) => {
@@ -345,9 +353,10 @@ export function AutoSubdividePanel({
 
   const handleEdgeToggle = (idx: number) => {
     setFrontEdgeIndex(idx);
-    setRotationStep(0);
+    setIsRotated(false);
     setGenerated(false);
     setConfigs([]);
+    onEdgeHighlight?.(null);
   };
 
   const totalArea = parentLot?.area ?? 0;
@@ -446,17 +455,21 @@ export function AutoSubdividePanel({
           )}
         </Button>
 
-        {/* Rotate 90° */}
+        {/* Rotate 90° — toggles between detected front and its perpendicular */}
         <Button
           variant="outline"
           size="sm"
-          className="h-9 px-3 border-gray-300 text-gray-600 hover:bg-gray-100 hover:text-gray-800 font-semibold gap-1.5"
+          className={`h-9 px-3 font-semibold gap-1.5 transition-all ${
+            isRotated
+              ? "border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100"
+              : "border-gray-300 text-gray-600 hover:bg-gray-100 hover:text-gray-800"
+          }`}
           onClick={handleRotate}
           disabled={!parentLot || generating}
-          title="Rotate layout 90°"
+          title={isRotated ? "Click to restore original orientation" : "Rotate layout 90°"}
         >
-          <RotateCw className="h-4 w-4" />
-          <span className="text-xs">Rotate 90°</span>
+          <RotateCw className={`h-4 w-4 ${isRotated ? "text-blue-600" : ""}`} />
+          <span className="text-xs">{isRotated ? "Rotated" : "Rotate 90°"}</span>
         </Button>
       </div>
 
@@ -474,32 +487,42 @@ export function AutoSubdividePanel({
             Street-Facing Edge
           </label>
           <div className="flex flex-col gap-1">
-            {frontBoundaryInfo.edges
+            {frontBoundaryInfo.candidateIndices
+              .map((idx) => frontBoundaryInfo.edges[idx])
+              .filter(Boolean)
               .filter((e) => e.length > 2)
-              .slice()
-              .sort((a, b) => a.midpoint[1] - b.midpoint[1])
               .slice(0, 4)
               .map((edge) => {
                 const isSelected =
                   edge.index ===
                   (frontEdgeIndex ?? frontBoundaryInfo.detectedIndex);
+                const isDetected =
+                  edge.index === frontBoundaryInfo.detectedIndex;
                 return (
                   <button
                     key={edge.index}
-                    onClick={() => handleEdgeToggle(edge.index)}
+                    onClick={() => {
+                      handleEdgeToggle(edge.index);
+                      handleGenerate(edge.index);
+                    }}
+                    onMouseEnter={() => onEdgeHighlight?.(edge.index)}
+                    onMouseLeave={() => onEdgeHighlight?.(null)}
                     className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-left transition-all border ${
                       isSelected
                         ? "bg-blue-600 text-white border-blue-600"
-                        : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
+                        : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-blue-50 hover:border-blue-300"
                     }`}
                   >
-                    <span className="font-semibold w-14">
+                    <span className={`font-semibold w-14 ${isSelected ? "text-white" : "text-gray-700"}`}>
                       {Math.round(edge.length)} m
                     </span>
                     <span className="flex-1">Edge {edge.index + 1}</span>
+                    {isDetected && !isSelected && (
+                      <span className="text-[10px] text-gray-400 italic">auto</span>
+                    )}
                     {isSelected && (
                       <span className="text-[10px] font-bold uppercase tracking-wide opacity-90">
-                        ✓ Active
+                        ✓ Street
                       </span>
                     )}
                   </button>
@@ -507,8 +530,7 @@ export function AutoSubdividePanel({
               })}
           </div>
           <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
-            Select which edge faces the street, then regenerate. Use Rotate 90°
-            to flip the whole layout direction.
+            Hover an edge to see it highlighted on the map. Click to select it as the street-facing edge, then regenerate.
           </p>
         </div>
       )}
