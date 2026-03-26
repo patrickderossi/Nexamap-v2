@@ -7,7 +7,9 @@ import { DraggablePanel } from "./DraggablePanel";
 import {
   AutoSubdividePanel,
   type ApplyableLot,
+  type ApplyableConfig,
 } from "./AutoSubdividePanel";
+import { rebuildConfigFromDivisions } from "@/lib/auto-subdivision";
 import {
   robustPolygonSplitAsync,
   robustPolygonSplit,
@@ -73,6 +75,10 @@ export function SubdivisionManager({
   const parentLotLayerRef = useRef<L.GeoJSON | null>(null);
   const drawnLineLayersRef = useRef<L.Polyline[]>([]);
   const generatedLotLayersRef = useRef<L.Layer[]>([]);
+  const autoHandleLayersRef = useRef<L.Layer[]>([]);
+
+  // Ref holding the active auto-subdivision config (for handle dragging)
+  const activeAutoConfigRef = useRef<ApplyableConfig | null>(null);
 
   // Visual feedback refs
   const rubberBandLineRef = useRef<L.Polyline | null>(null);
@@ -389,6 +395,11 @@ export function SubdivisionManager({
     generatedLotLayersRef.current.forEach((layer) => map.removeLayer(layer));
     generatedLotLayersRef.current = [];
 
+    // Clear auto handles
+    autoHandleLayersRef.current.forEach((layer) => map.removeLayer(layer));
+    autoHandleLayersRef.current = [];
+    activeAutoConfigRef.current = null;
+
     // Clear visual feedback
     if (rubberBandLineRef.current) {
       map.removeLayer(rubberBandLineRef.current);
@@ -474,9 +485,208 @@ export function SubdivisionManager({
   );
 
   // Apply auto-generated lots from AutoSubdividePanel
-  const applyAutoLots = useCallback(
-    (applyableLots: ApplyableLot[]) => {
+  /** Clear auto-subdivision handle markers from the map */
+  const clearAutoHandles = useCallback(() => {
+    if (!map) return;
+    autoHandleLayersRef.current.forEach((l) => map.removeLayer(l));
+    autoHandleLayersRef.current = [];
+  }, [map]);
+
+  /** Render draggable division handles and connector line for an auto config */
+  const renderAutoHandles = useCallback(
+    (payload: ApplyableConfig) => {
       if (!map) return;
+      clearAutoHandles();
+
+      const { config, parcelPolygon, rCode } = payload;
+      if (!config.divisionPointsM.length) return;
+
+      const coords = parcelPolygon.coordinates[0];
+      const n = coords.length - 1;
+      const frontStart = coords[config.frontEdgeIndex] as [number, number];
+      const frontEnd = coords[(config.frontEdgeIndex + 1) % n] as [number, number];
+
+      const dx = frontEnd[0] - frontStart[0];
+      const dy = frontEnd[1] - frontStart[1];
+      const len = Math.sqrt(dx * dx + dy * dy);
+      const u_deg = [dx / len, dy / len];
+
+      const METERS_PER_DEGREE = 111320;
+
+      const getHandleLatLng = (posM: number): L.LatLng => {
+        if (config.divisionType === "width") {
+          // Point along the front edge
+          const lng = frontStart[0] + (posM / METERS_PER_DEGREE) * u_deg[0];
+          const lat = frontStart[1] + (posM / METERS_PER_DEGREE) * u_deg[1];
+          return L.latLng(lat, lng);
+        } else {
+          // "depth" — point along the perpendicular from midpoint of front edge
+          // Project onto depth axis: midpoint of front edge + posM in p direction
+          const centroid = [
+            (frontStart[0] + frontEnd[0]) / 2,
+            (frontStart[1] + frontEnd[1]) / 2,
+          ];
+          // p_deg: rotate u_deg 90° toward centroid
+          const p1 = [-u_deg[1], u_deg[0]];
+          const p2 = [u_deg[1], -u_deg[0]];
+          const lotCentroid = turf
+            .centroid(turf.feature({ type: "Polygon", coordinates: parcelPolygon.coordinates }))
+            .geometry.coordinates;
+          const toc = [lotCentroid[0] - centroid[0], lotCentroid[1] - centroid[1]];
+          const p_deg = p1[0] * toc[0] + p1[1] * toc[1] > 0 ? p1 : p2;
+
+          const lng = centroid[0] + (posM / METERS_PER_DEGREE) * p_deg[0];
+          const lat = centroid[1] + (posM / METERS_PER_DEGREE) * p_deg[1];
+          return L.latLng(lat, lng);
+        }
+      };
+
+      // Draw connector line through handle positions
+      const handlePositions = config.divisionPointsM.map(getHandleLatLng);
+      if (handlePositions.length > 0) {
+        const line = L.polyline(handlePositions, {
+          color: "#7C3AED",
+          weight: 2,
+          dashArray: "6, 4",
+          opacity: 0.7,
+        }).addTo(map);
+        autoHandleLayersRef.current.push(line);
+      }
+
+      // Create draggable marker for each division line
+      config.divisionPointsM.forEach((posM, idx) => {
+        const latlng = getHandleLatLng(posM);
+
+        const handleIcon = L.divIcon({
+          className: "",
+          html: `<div style="
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #7C3AED;
+            border: 3px solid white;
+            box-shadow: 0 2px 6px rgba(124,58,237,0.6);
+            cursor: grab;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          "></div>`,
+          iconSize: [20, 20],
+          iconAnchor: [10, 10],
+        });
+
+        const marker = L.marker(latlng, {
+          icon: handleIcon,
+          draggable: true,
+          zIndexOffset: 1000,
+        }).addTo(map);
+
+        marker.on("dragend", () => {
+          const newLatLng = marker.getLatLng();
+          const currentConfig = activeAutoConfigRef.current;
+          if (!currentConfig) return;
+
+          // Project the dragged position onto the division axis and compute new posM
+          let newPosM: number;
+          if (config.divisionType === "width") {
+            // Project onto front edge direction from frontStart
+            const dlng = newLatLng.lng - frontStart[0];
+            const dlat = newLatLng.lat - frontStart[1];
+            newPosM = (dlng * u_deg[0] + dlat * u_deg[1]) * METERS_PER_DEGREE;
+          } else {
+            // Project onto depth direction
+            const centroid = [
+              (frontStart[0] + frontEnd[0]) / 2,
+              (frontStart[1] + frontEnd[1]) / 2,
+            ];
+            const p1 = [-u_deg[1], u_deg[0]];
+            const p2 = [u_deg[1], -u_deg[0]];
+            const lotCentroid = turf
+              .centroid(turf.feature({ type: "Polygon", coordinates: parcelPolygon.coordinates }))
+              .geometry.coordinates;
+            const toc = [lotCentroid[0] - centroid[0], lotCentroid[1] - centroid[1]];
+            const p_deg = p1[0] * toc[0] + p1[1] * toc[1] > 0 ? p1 : p2;
+
+            const dlng = newLatLng.lng - centroid[0];
+            const dlat = newLatLng.lat - centroid[1];
+            newPosM = (dlng * p_deg[0] + dlat * p_deg[1]) * METERS_PER_DEGREE;
+          }
+
+          // Clamp to neighbours so lots don't go below 30m²
+          const allDivisions = [...currentConfig.config.divisionPointsM];
+          const minGap = 1; // 1 metre min lot size in the division direction
+          const prevBound = idx === 0 ? minGap : allDivisions[idx - 1] + minGap;
+          const nextBound =
+            idx === allDivisions.length - 1
+              ? (config.divisionType === "width" ? config.widthM : config.depthM) - minGap
+              : allDivisions[idx + 1] - minGap;
+
+          newPosM = Math.max(prevBound, Math.min(nextBound, newPosM));
+          allDivisions[idx] = newPosM;
+
+          // Rebuild config with updated divisions
+          const parcelFeature = turf.feature({ type: "Polygon", coordinates: parcelPolygon.coordinates } as GeoJSON.Polygon);
+          const rebuilt = rebuildConfigFromDivisions(
+            currentConfig.config,
+            parcelFeature,
+            allDivisions,
+            rCode
+          );
+          if (!rebuilt) return;
+
+          const newPayload: ApplyableConfig = {
+            ...currentConfig,
+            config: rebuilt,
+            lots: rebuilt.lots.map((l) => ({
+              name: l.name,
+              classification: l.type,
+              geometry: l.geometry,
+            })),
+          };
+
+          activeAutoConfigRef.current = newPayload;
+
+          // Re-render lots without closing the panel
+          drawnLineLayersRef.current.forEach((layer) => map.removeLayer(layer));
+          drawnLineLayersRef.current = [];
+          generatedLotLayersRef.current.forEach((layer) => map.removeLayer(layer));
+          generatedLotLayersRef.current = [];
+
+          let privateCounter = 1;
+          const newLots: GeneratedLot[] = rebuilt.lots.map((rl, i) => {
+            const isCP = rl.type === "common-property";
+            const color = isCP
+              ? CLASSIFICATION_COLORS["common-property"]
+              : LOT_COLORS[privateCounter % LOT_COLORS.length];
+            if (!isCP) privateCounter++;
+            return {
+              id: `auto_${i + 1}`,
+              name: rl.name,
+              area: rl.area,
+              geometry: rl.geometry,
+              color,
+              originalColor: color,
+              classification: rl.type,
+            };
+          });
+
+          newLots.forEach((lot) => renderLotOnMap(lot));
+          setGeneratedLots(newLots);
+          renderAutoHandles(newPayload);
+        });
+
+        autoHandleLayersRef.current.push(marker);
+      });
+    },
+    [map, clearAutoHandles, renderLotOnMap]
+  );
+
+  const applyAutoLots = useCallback(
+    (payload: ApplyableConfig) => {
+      if (!map) return;
+
+      // Store for handle dragging
+      activeAutoConfigRef.current = payload;
 
       // Clear existing drawn lines and generated lots
       drawnLineLayersRef.current.forEach((layer) => map.removeLayer(layer));
@@ -486,6 +696,8 @@ export function SubdivisionManager({
       generatedLotLayersRef.current.forEach((layer) => map.removeLayer(layer));
       generatedLotLayersRef.current = [];
 
+      clearAutoHandles();
+
       // Reset drawing state
       setCurrentDrawingPoint(null);
       if (startPointIndicatorRef.current) {
@@ -494,7 +706,7 @@ export function SubdivisionManager({
       }
 
       let privateCounter = 1;
-      const newLots: GeneratedLot[] = applyableLots.map((applyable, i) => {
+      const newLots: GeneratedLot[] = payload.lots.map((applyable, i) => {
         const isCP = applyable.classification === "common-property";
         const color = isCP
           ? CLASSIFICATION_COLORS["common-property"]
@@ -520,8 +732,11 @@ export function SubdivisionManager({
 
       newLots.forEach((lot) => renderLotOnMap(lot));
       setGeneratedLots(newLots);
+
+      // Add draggable handles for division lines
+      renderAutoHandles(payload);
     },
-    [map, renderLotOnMap]
+    [map, renderLotOnMap, clearAutoHandles, renderAutoHandles]
   );
 
   // Expose functions to parent component
@@ -1143,8 +1358,8 @@ export function SubdivisionManager({
         >
           <AutoSubdividePanel
             parentLot={parentLot}
-            onApplyConfig={(lots) => {
-              applyAutoLots(lots);
+            onApplyConfig={(payload) => {
+              applyAutoLots(payload);
               setShowAutoSubdivide(false);
             }}
             onClose={() => setShowAutoSubdivide(false)}

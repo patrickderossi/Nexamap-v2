@@ -14,11 +14,14 @@ import {
   ArrowRight,
   Home,
   Flag,
+  RotateCw,
+  GitBranch,
 } from "lucide-react";
 import * as turf from "@turf/turf";
 import {
   detectFrontBoundary,
   generateAutoSubdivisionConfigs,
+  getRotatedFrontEdgeIndex,
   type AutoSubdivisionConfig,
   type AutoLot,
   type FrontBoundaryInfo,
@@ -31,22 +34,26 @@ export interface ApplyableLot {
   geometry: GeoJSON.Polygon;
 }
 
+export interface ApplyableConfig {
+  lots: ApplyableLot[];
+  config: AutoSubdivisionConfig;
+  parcelPolygon: GeoJSON.Polygon;
+  rCode: string;
+}
+
 interface AutoSubdividePanelProps {
   parentLot: ParentLot | undefined;
-  onApplyConfig: (lots: ApplyableLot[]) => void;
+  onApplyConfig: (payload: ApplyableConfig) => void;
   onClose?: () => void;
 }
 
 const LOT_COUNTS = [2, 3, 4, 5, 6];
 
-function ConfigTypeIcon({
-  type,
-}: {
-  type: "side-by-side" | "battleaxe";
-}) {
+function ConfigTypeIcon({ type }: { type: AutoSubdivisionConfig["type"] }) {
   if (type === "side-by-side")
     return <Layers className="h-4 w-4 text-blue-600" />;
-  return <Flag className="h-4 w-4 text-orange-600" />;
+  if (type === "battleaxe") return <Flag className="h-4 w-4 text-orange-600" />;
+  return <GitBranch className="h-4 w-4 text-purple-600" />;
 }
 
 function LotRow({ lot }: { lot: AutoLot }) {
@@ -90,15 +97,23 @@ function ConfigCard({
   const privateLots = config.lots.filter((l) => l.type === "private");
   const cpLots = config.lots.filter((l) => l.type === "common-property");
 
+  const borderClass =
+    config.type === "side-by-side"
+      ? "border-blue-200 bg-blue-50/30"
+      : config.type === "battleaxe"
+      ? "border-orange-200 bg-orange-50/30"
+      : "border-purple-200 bg-purple-50/30";
+
+  const applyClass =
+    config.type === "side-by-side"
+      ? "bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white"
+      : config.type === "battleaxe"
+      ? "bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white"
+      : "bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white";
+
   return (
-    <div
-      className={`border-2 rounded-xl overflow-hidden transition-all ${
-        config.overallCompliant
-          ? "border-emerald-200 bg-emerald-50/40"
-          : "border-amber-200 bg-amber-50/40"
-      }`}
-    >
-      {/* Config header */}
+    <div className={`border-2 rounded-xl overflow-hidden transition-all ${borderClass}`}>
+      {/* Header */}
       <div className="px-4 py-3 flex items-center gap-3">
         <ConfigTypeIcon type={config.type} />
         <div className="flex-1 min-w-0">
@@ -114,7 +129,7 @@ function ConfigCard({
                   : "border-amber-400 text-amber-700 bg-amber-50"
               }`}
             >
-              {config.overallCompliant ? "Compliant" : "Non-compliant"}
+              {config.overallCompliant ? "Compliant" : "Review"}
             </Badge>
           </div>
           <p className="text-xs text-gray-500 mt-0.5 leading-tight">
@@ -134,14 +149,14 @@ function ConfigCard({
         </button>
       </div>
 
-      {/* Lot summary chips */}
+      {/* Lot chips */}
       <div className="px-4 pb-2 flex flex-wrap gap-1.5">
         {privateLots.map((lot) => (
           <span
             key={lot.id}
             className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${
               lot.compliant
-                ? "bg-blue-100 text-blue-700"
+                ? "bg-white/70 text-gray-700 border border-gray-200"
                 : "bg-red-100 text-red-700"
             }`}
           >
@@ -160,9 +175,29 @@ function ConfigCard({
         ))}
       </div>
 
+      {/* Dimensions strip */}
+      <div className="px-4 pb-2 flex gap-4 text-[10px] text-gray-400">
+        <span>
+          Width <span className="font-semibold text-gray-600">{config.widthM} m</span>
+        </span>
+        <span>
+          Depth <span className="font-semibold text-gray-600">{config.depthM} m</span>
+        </span>
+        {config.handleWidthM && (
+          <span>
+            Handle <span className="font-semibold text-gray-600">{config.handleWidthM} m</span>
+          </span>
+        )}
+        {config.cpWidthM && (
+          <span>
+            Driveway <span className="font-semibold text-gray-600">{config.cpWidthM} m CP</span>
+          </span>
+        )}
+      </div>
+
       {/* Expandable lot table */}
       {expanded && (
-        <div className="px-4 pb-3 border-t border-gray-200 pt-2 bg-white/60">
+        <div className="px-4 pb-3 border-t border-gray-200/60 pt-2 bg-white/60">
           <div className="flex items-center justify-between text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 px-1">
             <span>Lot</span>
             <div className="flex items-center gap-4">
@@ -192,13 +227,9 @@ function ConfigCard({
         <Button
           size="sm"
           onClick={onApply}
-          className={`w-full text-xs font-semibold h-8 ${
-            config.overallCompliant
-              ? "bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white"
-              : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white"
-          }`}
+          className={`w-full text-xs font-semibold h-8 ${applyClass}`}
         >
-          Apply {config.name} →
+          Apply — {config.name} →
         </Button>
       </div>
     </div>
@@ -211,6 +242,7 @@ export function AutoSubdividePanel({
 }: AutoSubdividePanelProps) {
   const [targetLots, setTargetLots] = useState(2);
   const [frontEdgeIndex, setFrontEdgeIndex] = useState<number | null>(null);
+  const [rotationStep, setRotationStep] = useState(0); // 0 = detected, 1+ = rotated
   const [frontBoundaryInfo, setFrontBoundaryInfo] =
     useState<FrontBoundaryInfo | null>(null);
   const [configs, setConfigs] = useState<AutoSubdivisionConfig[]>([]);
@@ -221,49 +253,78 @@ export function AutoSubdividePanel({
   const rCode =
     parentLot?.zoning?.match(/R\d+(\.\d+)?(\/\d+(\.\d+)?)?/)?.[0] ?? "R20";
 
-  const handleGenerate = useCallback(() => {
-    if (!parentLot?.geometry) {
-      setErrorMsg("No parcel loaded. Please select a property first.");
-      return;
-    }
-
-    setGenerating(true);
-    setErrorMsg(null);
-    setConfigs([]);
-
-    try {
-      const parcelFeature = turf.feature(parentLot.geometry);
-
-      // Detect front boundary
-      const fbInfo = detectFrontBoundary(parentLot.geometry);
-      setFrontBoundaryInfo(fbInfo);
-
-      const edgeIndex = frontEdgeIndex ?? fbInfo.detectedIndex;
-      setFrontEdgeIndex(edgeIndex);
-
-      const result = generateAutoSubdivisionConfigs(
-        parcelFeature,
-        targetLots,
-        rCode,
-        edgeIndex
-      );
-
-      if (result.length === 0) {
-        setErrorMsg(
-          "Unable to generate valid configurations for this parcel shape and lot count. Try a different number of lots."
-        );
-      } else {
-        setConfigs(result);
-        setGenerated(true);
+  const handleGenerate = useCallback(
+    (edgeOverride?: number) => {
+      if (!parentLot?.geometry) {
+        setErrorMsg("No parcel loaded. Please select a property first.");
+        return;
       }
-    } catch (err) {
-      setErrorMsg(
-        err instanceof Error ? err.message : "Unexpected error during generation."
-      );
-    } finally {
-      setGenerating(false);
-    }
-  }, [parentLot, targetLots, frontEdgeIndex, rCode]);
+
+      setGenerating(true);
+      setErrorMsg(null);
+      setConfigs([]);
+
+      try {
+        const parcelFeature = turf.feature(parentLot.geometry);
+
+        const fbInfo = detectFrontBoundary(parentLot.geometry);
+        setFrontBoundaryInfo(fbInfo);
+
+        const edgeIndex =
+          edgeOverride !== undefined
+            ? edgeOverride
+            : frontEdgeIndex !== null
+            ? frontEdgeIndex
+            : fbInfo.detectedIndex;
+
+        setFrontEdgeIndex(edgeIndex);
+
+        const result = generateAutoSubdivisionConfigs(
+          parcelFeature,
+          targetLots,
+          rCode,
+          edgeIndex
+        );
+
+        if (result.length === 0) {
+          setErrorMsg(
+            "Unable to generate valid configurations for this parcel. Try a different lot count or rotate the layout."
+          );
+        } else {
+          setConfigs(result);
+          setGenerated(true);
+        }
+      } catch (err) {
+        setErrorMsg(
+          err instanceof Error
+            ? err.message
+            : "Unexpected error during generation."
+        );
+      } finally {
+        setGenerating(false);
+      }
+    },
+    [parentLot, targetLots, frontEdgeIndex, rCode]
+  );
+
+  const handleRotate = useCallback(() => {
+    if (!parentLot?.geometry || !frontBoundaryInfo) return;
+
+    const nextStep = rotationStep + 1;
+    setRotationStep(nextStep);
+
+    const detectedIndex = frontBoundaryInfo.detectedIndex;
+    const newEdge = getRotatedFrontEdgeIndex(
+      parentLot.geometry,
+      detectedIndex,
+      nextStep
+    );
+
+    setFrontEdgeIndex(newEdge);
+    setGenerated(false);
+    setConfigs([]);
+    handleGenerate(newEdge);
+  }, [parentLot, frontBoundaryInfo, rotationStep, handleGenerate]);
 
   const handleApply = useCallback(
     (config: AutoSubdivisionConfig) => {
@@ -272,13 +333,19 @@ export function AutoSubdividePanel({
         classification: lot.type,
         geometry: lot.geometry,
       }));
-      onApplyConfig(lots);
+      onApplyConfig({
+        lots,
+        config,
+        parcelPolygon: parentLot!.geometry,
+        rCode,
+      });
     },
-    [onApplyConfig]
+    [onApplyConfig, parentLot, rCode]
   );
 
   const handleEdgeToggle = (idx: number) => {
     setFrontEdgeIndex(idx);
+    setRotationStep(0);
     setGenerated(false);
     setConfigs([]);
   };
@@ -286,7 +353,7 @@ export function AutoSubdividePanel({
   const totalArea = parentLot?.area ?? 0;
 
   return (
-    <div className="flex flex-col gap-3 max-h-[70vh] overflow-y-auto pr-1">
+    <div className="flex flex-col gap-3 max-h-[72vh] overflow-y-auto pr-1">
       {/* Parcel summary */}
       {parentLot && (
         <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-xs text-blue-800">
@@ -353,82 +420,45 @@ export function AutoSubdividePanel({
         </div>
       </div>
 
-      {/* Front boundary selection */}
-      {frontBoundaryInfo && (
-        <div>
-          <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block">
-            Front Boundary (street-facing edge)
-          </label>
-          <div className="flex flex-col gap-1">
-            {frontBoundaryInfo.edges
-              .slice()
-              .sort((a, b) => a.length - b.length)
-              .slice(0, 4)
-              .map((edge) => {
-                const isSelected =
-                  edge.index === (frontEdgeIndex ?? frontBoundaryInfo.detectedIndex);
-                const isCandidate = frontBoundaryInfo.candidateIndices.includes(
-                  edge.index
-                );
-                return (
-                  <button
-                    key={edge.index}
-                    onClick={() => handleEdgeToggle(edge.index)}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-left transition-all border ${
-                      isSelected
-                        ? "bg-blue-600 text-white border-blue-600"
-                        : isCandidate
-                        ? "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
-                        : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
-                    }`}
-                  >
-                    <span className="font-semibold w-16">
-                      {Math.round(edge.length)} m
-                    </span>
-                    <span className="flex-1">Edge {edge.index + 1}</span>
-                    {isSelected && (
-                      <span className="text-[10px] font-bold uppercase tracking-wide opacity-90">
-                        Selected ✓
-                      </span>
-                    )}
-                    {!isSelected && isCandidate && (
-                      <span className="text-[10px] opacity-60">Candidate</span>
-                    )}
-                  </button>
-                );
-              })}
-          </div>
-          <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
-            The auto-detected edge is highlighted. Click a different edge if
-            the street is on another side.
-          </p>
-        </div>
-      )}
+      {/* Generate + Rotate row */}
+      <div className="flex gap-2">
+        <Button
+          onClick={() => handleGenerate()}
+          disabled={generating || !parentLot}
+          className="flex-1 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold h-9"
+          size="sm"
+        >
+          {generating ? (
+            <>
+              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              Generating…
+            </>
+          ) : generated ? (
+            <>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Regenerate
+            </>
+          ) : (
+            <>
+              <Layers className="h-4 w-4 mr-2" />
+              Generate
+            </>
+          )}
+        </Button>
 
-      {/* Generate button */}
-      <Button
-        onClick={handleGenerate}
-        disabled={generating || !parentLot}
-        className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold h-9"
-        size="sm"
-      >
-        {generating ? (
-          <>
-            <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-            Generating…
-          </>
-        ) : generated ? (
-          <>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Regenerate Configurations
-          </>
-        ) : (
-          <>
-            <Layers className="h-4 w-4 mr-2" />
-            Generate Configurations
-          </>
-        )}
-      </Button>
+        {/* Rotate 90° */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-9 px-3 border-gray-300 text-gray-600 hover:bg-gray-100 hover:text-gray-800 font-semibold gap-1.5"
+          onClick={handleRotate}
+          disabled={!parentLot || generating}
+          title="Rotate layout 90°"
+        >
+          <RotateCw className="h-4 w-4" />
+          <span className="text-xs">Rotate 90°</span>
+        </Button>
+      </div>
 
       {/* Error */}
       {errorMsg && (
@@ -437,12 +467,63 @@ export function AutoSubdividePanel({
         </div>
       )}
 
+      {/* Front boundary selection — shown after first generate */}
+      {frontBoundaryInfo && generated && (
+        <div>
+          <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block">
+            Street-Facing Edge
+          </label>
+          <div className="flex flex-col gap-1">
+            {frontBoundaryInfo.edges
+              .filter((e) => e.length > 2)
+              .slice()
+              .sort((a, b) => a.midpoint[1] - b.midpoint[1])
+              .slice(0, 4)
+              .map((edge) => {
+                const isSelected =
+                  edge.index ===
+                  (frontEdgeIndex ?? frontBoundaryInfo.detectedIndex);
+                return (
+                  <button
+                    key={edge.index}
+                    onClick={() => handleEdgeToggle(edge.index)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-left transition-all border ${
+                      isSelected
+                        ? "bg-blue-600 text-white border-blue-600"
+                        : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
+                    }`}
+                  >
+                    <span className="font-semibold w-14">
+                      {Math.round(edge.length)} m
+                    </span>
+                    <span className="flex-1">Edge {edge.index + 1}</span>
+                    {isSelected && (
+                      <span className="text-[10px] font-bold uppercase tracking-wide opacity-90">
+                        ✓ Active
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+          </div>
+          <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
+            Select which edge faces the street, then regenerate. Use Rotate 90°
+            to flip the whole layout direction.
+          </p>
+        </div>
+      )}
+
       {/* Configs */}
       {configs.length > 0 && (
         <>
           <Separator />
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-            {configs.length} Configuration{configs.length > 1 ? "s" : ""} Found
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+              {configs.length} Layout{configs.length > 1 ? "s" : ""} Generated
+            </div>
+            <div className="text-[10px] text-gray-400">
+              Apply to map, then drag lot edges to resize
+            </div>
           </div>
           <div className="flex flex-col gap-3">
             {configs.map((config) => (
@@ -453,9 +534,9 @@ export function AutoSubdividePanel({
               />
             ))}
           </div>
-          <p className="text-[10px] text-gray-400 text-center leading-relaxed">
-            After applying, use the Classify Areas tool to adjust lot types,
-            or export from the Subdivision Analysis panel.
+          <p className="text-[10px] text-gray-400 text-center leading-relaxed pb-1">
+            After applying, drag the division handles on the map to resize lots.
+            Use Classify Areas to adjust lot types.
           </p>
         </>
       )}
