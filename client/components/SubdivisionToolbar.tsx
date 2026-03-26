@@ -14,6 +14,7 @@ import {
   Pencil,
   MousePointer2,
   HelpCircle,
+  Wand2,
 } from "lucide-react";
 import L from "leaflet";
 import { toast } from "@/hooks/use-toast";
@@ -32,6 +33,7 @@ interface SubdivisionToolbarProps {
   onModeChange: (mode: SubdivisionMode) => void;
   onClearLines: () => void;
   onGenerateLots: () => void;
+  onAutoSubdivide?: () => void;
   disabled?: boolean;
   hasDrawnLines?: boolean;
   hasGeneratedLots?: boolean;
@@ -45,6 +47,7 @@ function SubdivisionToolbarComponent({
   onModeChange,
   onClearLines,
   onGenerateLots,
+  onAutoSubdivide,
   disabled = false,
   hasDrawnLines = false,
   hasGeneratedLots = false,
@@ -150,6 +153,29 @@ function SubdivisionToolbarComponent({
 
         {mode.active && selectedParcel && (
           <>
+            <Separator orientation="vertical" className="h-8" />
+
+            {/* Auto Subdivide Tool */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onAutoSubdivide}
+                  className="px-3 border-2 border-purple-300 hover:border-purple-400 hover:bg-purple-50 text-purple-700 font-medium"
+                >
+                  <Wand2 className="h-4 w-4 mr-2" />
+                  Auto Subdivide
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>
+                  Automatically generate side-by-side or battleaxe
+                  configurations with R-Code compliance checking
+                </p>
+              </TooltipContent>
+            </Tooltip>
+
             <Separator orientation="vertical" className="h-8" />
 
             {/* Draw Lines Tool */}

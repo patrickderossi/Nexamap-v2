@@ -60,6 +60,19 @@ A full-stack geospatial real estate and property analysis application focused on
 - **Client service**: `client/lib/valuation-service.ts` — `lookupPropertyDetails()` + `fetchPropertyValuation()`
 - **Zyla API**: Australian Property Insights API (ID 7297), endpoint 11581. `ZYLA_API_KEY` secret required.
 
+## Auto-Subdivision Feature
+- **Trigger**: "Auto Subdivide" button (purple, Wand icon) in the SubdivisionToolbar, visible once subdivision mode is active on a selected parcel
+- **Files**:
+  - `client/lib/auto-subdivision.ts` — core geometry engine (front boundary detection, side-by-side and battleaxe configuration generators, R-Code compliance checks)
+  - `client/components/AutoSubdividePanel.tsx` — draggable panel UI (lot count picker, edge selector, config cards with apply button)
+- **Algorithm**:
+  - `detectFrontBoundary()`: sorts edges by length (shorter = likely front/rear), picks the most southerly candidate as the front (heuristic for Perth WA streets), returns all edges so user can manually select a different one
+  - `generateSideBySideConfig()`: creates N equal-width strips by generating rectangular clipping boxes aligned with the front edge direction, intersecting each with the parcel polygon via `turf.intersect(featureCollection([...]))`
+  - `generateBattleaxeConfig()`: creates a 3 m wide access handle strip (Common Property) on one side of the front edge, then stacks N equal depth-slices in the remaining main block; uses `createWidthSlice` and `createWidthDepthSlice` helpers
+  - Compliance: checks each lot's area ≥ R-Code `minSiteArea`, frontage ≥ `minFrontage` from `zoning-requirements.ts`
+- **Rendering**: `applyAutoLots()` in SubdivisionManager clears existing lots, creates `GeneratedLot` objects, calls `renderLotOnMap()` (extracted shared rendering helper), then sets state so the Subdivision Analysis sidebar updates automatically
+- **Wiring**: `window.subdivisionActions.toggleAutoSubdivide()` bridges MapFirstLayout → SubdivisionManager (same pattern as `clearLines`/`generateLots`)
+
 ## Deployment
 - **Build**: `npm run build` (Vite SPA + server bundle)
 - **Run**: `node dist/server/node-build.mjs`

@@ -269,6 +269,13 @@ export function MapFirstLayout({
     }
   }, []);
 
+  const handleAutoSubdivide = useCallback(() => {
+    const actions = (window as any).subdivisionActions;
+    if (actions?.toggleAutoSubdivide) {
+      actions.toggleAutoSubdivide();
+    }
+  }, []);
+
   const handleYieldEstimatorToggle = useCallback(() => {
     setShowYieldEstimator(!showYieldEstimator);
   }, [showYieldEstimator]);
@@ -615,6 +622,7 @@ export function MapFirstLayout({
                 onModeChange={handleSubdivisionModeChange}
                 onClearLines={handleClearLines}
                 onGenerateLots={handleGenerateLots}
+                onAutoSubdivide={handleAutoSubdivide}
                 hasDrawnLines={hasActiveSplits}
                 hasGeneratedLots={hasGeneratedLots}
                 selectedParcel={selectedParcel ?? undefined}

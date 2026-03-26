@@ -5,6 +5,10 @@ import { SubdivisionToolbar, SubdivisionMode } from "./SubdivisionToolbar";
 import { SubdivisionSidebar, SubLot, ParentLot } from "./SubdivisionSidebar";
 import { DraggablePanel } from "./DraggablePanel";
 import {
+  AutoSubdividePanel,
+  type ApplyableLot,
+} from "./AutoSubdividePanel";
+import {
   robustPolygonSplitAsync,
   robustPolygonSplit,
 } from "@/lib/polygon-operations";
@@ -54,6 +58,7 @@ export function SubdivisionManager({
   const [parentLot, setParentLot] = useState<ParentLot | undefined>();
   const [drawnLines, setDrawnLines] = useState<DrawnLine[]>([]);
   const [generatedLots, setGeneratedLots] = useState<GeneratedLot[]>([]);
+  const [showAutoSubdivide, setShowAutoSubdivide] = useState(false);
 
   // Drawing state
   const [currentDrawingPoint, setCurrentDrawingPoint] =
@@ -105,6 +110,7 @@ export function SubdivisionManager({
       setCurrentDrawingPoint(null);
       setIsSnapping(false);
       setSnapPoint(null);
+      setShowAutoSubdivide(false);
     }
   }, [subdivisionMode.active]);
 
@@ -412,6 +418,112 @@ export function SubdivisionManager({
     onLotsChange?.(generatedLots.length > 0);
   }, [generatedLots, onLotsChange]);
 
+  // Render a single GeneratedLot onto the map and push layers into the ref
+  const renderLotOnMap = useCallback(
+    (lot: GeneratedLot) => {
+      if (!map) return;
+
+      const polygon: GeoJSON.Feature<GeoJSON.Polygon> = {
+        type: "Feature",
+        geometry: lot.geometry,
+        properties: {},
+      };
+
+      const isCP = lot.classification === "common-property";
+      const lotLayer = L.geoJSON(polygon, {
+        style: {
+          color: lot.color,
+          weight: isCP ? 3 : 2,
+          opacity: 0.8,
+          fillOpacity: isCP ? 0.2 : 0.3,
+          fillColor: lot.color,
+          dashArray: isCP ? "8, 8" : undefined,
+        },
+        smoothFactor: 0,
+      }).addTo(map);
+
+      const centroid = turf.centroid(polygon);
+      const [lng, lat] = centroid.geometry.coordinates;
+
+      const labelIcon = L.divIcon({
+        className: "lot-label",
+        html: `<div style="
+          background: white;
+          border: 2px solid ${lot.color};
+          border-radius: 6px;
+          padding: 4px 8px;
+          font-size: 12px;
+          font-weight: 700;
+          color: ${lot.color};
+          text-align: center;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+          ${isCP ? "background: repeating-linear-gradient(45deg, white, white 3px, #e0e0e0 3px, #e0e0e0 6px);" : ""}
+        ">${lot.name}<br><span style="font-size: 10px;">${lot.area} m²</span></div>`,
+        iconSize: [80, 40],
+        iconAnchor: [40, 20],
+      });
+
+      const labelMarker = L.marker([lat, lng], {
+        icon: labelIcon,
+        interactive: false,
+      }).addTo(map);
+
+      generatedLotLayersRef.current.push(lotLayer, labelMarker);
+    },
+    [map]
+  );
+
+  // Apply auto-generated lots from AutoSubdividePanel
+  const applyAutoLots = useCallback(
+    (applyableLots: ApplyableLot[]) => {
+      if (!map) return;
+
+      // Clear existing drawn lines and generated lots
+      drawnLineLayersRef.current.forEach((layer) => map.removeLayer(layer));
+      drawnLineLayersRef.current = [];
+      setDrawnLines([]);
+
+      generatedLotLayersRef.current.forEach((layer) => map.removeLayer(layer));
+      generatedLotLayersRef.current = [];
+
+      // Reset drawing state
+      setCurrentDrawingPoint(null);
+      if (startPointIndicatorRef.current) {
+        map.removeLayer(startPointIndicatorRef.current);
+        startPointIndicatorRef.current = null;
+      }
+
+      let privateCounter = 1;
+      const newLots: GeneratedLot[] = applyableLots.map((applyable, i) => {
+        const isCP = applyable.classification === "common-property";
+        const color = isCP
+          ? CLASSIFICATION_COLORS["common-property"]
+          : LOT_COLORS[privateCounter % LOT_COLORS.length];
+
+        const name = applyable.name;
+        if (!isCP) privateCounter++;
+
+        const area = Math.round(
+          turf.area({ type: "Feature", geometry: applyable.geometry, properties: {} })
+        );
+
+        return {
+          id: `auto_${i + 1}`,
+          name,
+          area,
+          geometry: applyable.geometry,
+          color,
+          originalColor: isCP ? color : LOT_COLORS[(privateCounter - 1) % LOT_COLORS.length],
+          classification: applyable.classification,
+        };
+      });
+
+      newLots.forEach((lot) => renderLotOnMap(lot));
+      setGeneratedLots(newLots);
+    },
+    [map, renderLotOnMap]
+  );
+
   // Expose functions to parent component
   useEffect(() => {
     if (subdivisionMode.active) {
@@ -419,12 +531,14 @@ export function SubdivisionManager({
       (window as any).subdivisionActions = {
         clearLines,
         generateLots,
+        applyAutoLots,
+        toggleAutoSubdivide: () => setShowAutoSubdivide((v) => !v),
       };
     }
     return () => {
       delete (window as any).subdivisionActions;
     };
-  }, [subdivisionMode.active, drawnLines, generatedLots]);
+  }, [subdivisionMode.active, drawnLines, generatedLots, applyAutoLots]);
 
   // Find nearest corner of the property boundary
   const findNearestCorner = (
@@ -1019,6 +1133,25 @@ export function SubdivisionManager({
 
   return (
     <>
+      {/* Auto Subdivide Panel */}
+      {subdivisionMode.active && showAutoSubdivide && (
+        <DraggablePanel
+          title="Auto Subdivide"
+          initialX={340}
+          initialY={80}
+          className="w-96"
+        >
+          <AutoSubdividePanel
+            parentLot={parentLot}
+            onApplyConfig={(lots) => {
+              applyAutoLots(lots);
+              setShowAutoSubdivide(false);
+            }}
+            onClose={() => setShowAutoSubdivide(false)}
+          />
+        </DraggablePanel>
+      )}
+
       {/* Subdivision Sidebar */}
       {subdivisionMode.active && (
         <DraggablePanel
