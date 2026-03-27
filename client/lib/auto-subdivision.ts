@@ -255,6 +255,24 @@ function getDirectionVectors(
 }
 
 /**
+ * Normalise a front edge so u_deg always points eastward (or northward when
+ * the edge is nearly vertical).  This guarantees the "right-hand" side of the
+ * parcel is always at u = widthM regardless of polygon winding order.
+ */
+function normalizeEdgeDirection(
+  start: [number, number],
+  end: [number, number]
+): [[number, number], [number, number]] {
+  const dx = end[0] - start[0];
+  const dy = end[1] - start[1];
+  // Swap if pointing westward, or if vertical and pointing southward
+  if (dx < -1e-10 || (Math.abs(dx) <= 1e-10 && dy < -1e-10)) {
+    return [end, start];
+  }
+  return [start, end];
+}
+
+/**
  * Clip a strip that spans [uStart_m, uEnd_m] along the front edge
  * and extends infinitely (BIG) in the depth direction.
  * Pass uStart_m = -BIG_M or uEnd_m = widthM + BIG_M to cover irregular parcel corners.
@@ -375,8 +393,10 @@ function generateSideBySide(
 ): AutoSubdivisionConfig | null {
   const coords = parcelPolygon.geometry.coordinates[0];
   const n = coords.length - 1;
-  const frontStart = coords[frontEdgeIndex] as [number, number];
-  const frontEnd = coords[(frontEdgeIndex + 1) % n] as [number, number];
+  const [frontStart, frontEnd] = normalizeEdgeDirection(
+    coords[frontEdgeIndex] as [number, number],
+    coords[(frontEdgeIndex + 1) % n] as [number, number]
+  );
 
   const { u_deg, p_deg } = getDirectionVectors(
     frontStart,
@@ -466,8 +486,10 @@ function generateBattleaxe(
 ): AutoSubdivisionConfig | null {
   const coords = parcelPolygon.geometry.coordinates[0];
   const n = coords.length - 1;
-  const frontStart = coords[frontEdgeIndex] as [number, number];
-  const frontEnd = coords[(frontEdgeIndex + 1) % n] as [number, number];
+  const [frontStart, frontEnd] = normalizeEdgeDirection(
+    coords[frontEdgeIndex] as [number, number],
+    coords[(frontEdgeIndex + 1) % n] as [number, number]
+  );
 
   const { u_deg, p_deg } = getDirectionVectors(
     frontStart,
@@ -585,8 +607,10 @@ function generateStrataAccess(
 ): AutoSubdivisionConfig | null {
   const coords = parcelPolygon.geometry.coordinates[0];
   const n = coords.length - 1;
-  const frontStart = coords[frontEdgeIndex] as [number, number];
-  const frontEnd = coords[(frontEdgeIndex + 1) % n] as [number, number];
+  const [frontStart, frontEnd] = normalizeEdgeDirection(
+    coords[frontEdgeIndex] as [number, number],
+    coords[(frontEdgeIndex + 1) % n] as [number, number]
+  );
 
   const { u_deg, p_deg } = getDirectionVectors(
     frontStart,
@@ -691,8 +715,10 @@ function generateStrataCP(
 ): AutoSubdivisionConfig | null {
   const coords = parcelPolygon.geometry.coordinates[0];
   const n = coords.length - 1;
-  const frontStart = coords[frontEdgeIndex] as [number, number];
-  const frontEnd = coords[(frontEdgeIndex + 1) % n] as [number, number];
+  const [frontStart, frontEnd] = normalizeEdgeDirection(
+    coords[frontEdgeIndex] as [number, number],
+    coords[(frontEdgeIndex + 1) % n] as [number, number]
+  );
 
   const { u_deg, p_deg } = getDirectionVectors(
     frontStart,
