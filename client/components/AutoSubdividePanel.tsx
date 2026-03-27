@@ -250,6 +250,7 @@ export function AutoSubdividePanel({
   onEdgeHighlight,
 }: AutoSubdividePanelProps) {
   const [targetLots, setTargetLots] = useState(2);
+  const [cpWidth, setCpWidth] = useState(4); // driveway / handle width in metres
   const [frontEdgeIndex, setFrontEdgeIndex] = useState<number | null>(null);
   const [isRotated, setIsRotated] = useState(false);
   const [frontBoundaryInfo, setFrontBoundaryInfo] =
@@ -292,7 +293,8 @@ export function AutoSubdividePanel({
           parcelFeature,
           targetLots,
           rCode,
-          edgeIndex
+          edgeIndex,
+          cpWidth
         );
 
         if (result.length === 0) {
@@ -313,7 +315,7 @@ export function AutoSubdividePanel({
         setGenerating(false);
       }
     },
-    [parentLot, targetLots, frontEdgeIndex, rCode]
+    [parentLot, targetLots, frontEdgeIndex, rCode, cpWidth]
   );
 
   const handleRotate = useCallback(() => {
@@ -426,6 +428,61 @@ export function AutoSubdividePanel({
             <Plus className="h-3 w-3" />
           </Button>
           <span className="text-xs text-gray-500 ml-1">lots</span>
+        </div>
+      </div>
+
+      {/* CP / Driveway width control */}
+      <div>
+        <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block">
+          Driveway / CP Width
+        </label>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 w-7 p-0"
+            onClick={() => {
+              setCpWidth((v) => Math.max(2, v - 0.5));
+              setGenerated(false);
+              setConfigs([]);
+            }}
+            disabled={cpWidth <= 2}
+          >
+            <Minus className="h-3 w-3" />
+          </Button>
+          <div className="flex items-center gap-0.5">
+            {[2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6].map((w) => (
+              <button
+                key={w}
+                onClick={() => {
+                  setCpWidth(w);
+                  setGenerated(false);
+                  setConfigs([]);
+                }}
+                className={`w-7 h-7 rounded text-[10px] font-bold transition-all ${
+                  cpWidth === w
+                    ? "bg-emerald-600 text-white shadow-sm"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >
+                {w}
+              </button>
+            ))}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 w-7 p-0"
+            onClick={() => {
+              setCpWidth((v) => Math.min(6, v + 0.5));
+              setGenerated(false);
+              setConfigs([]);
+            }}
+            disabled={cpWidth >= 6}
+          >
+            <Plus className="h-3 w-3" />
+          </Button>
+          <span className="text-xs text-gray-500 ml-1">m</span>
         </div>
       </div>
 

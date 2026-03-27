@@ -12,8 +12,8 @@ import { getZoningRequirements } from "./zoning-requirements";
 const METERS_PER_DEGREE = 111320;
 // Large extension that guarantees coverage of any suburban lot (<2km)
 const BIG = 2000 / METERS_PER_DEGREE;
-const BATTLEAXE_HANDLE_WIDTH_M = 3;
-const STRATA_CP_WIDTH_M = 4;
+const DEFAULT_HANDLE_WIDTH_M = 4;   // driveway / access handle default
+const STRATA_CP_WIDTH_M = 4;        // strata central driveway default
 
 // =====================
 // Public types
@@ -451,14 +451,18 @@ function generateSideBySide(
 }
 
 // =====================
-// Battleaxe — strictly 1 front lot + 3m handle + 1 rear lot (always 2 private lots)
+// Battleaxe — strictly 1 front lot + handle + 1 rear lot (always 2 private lots)
+//
+// Geometry: the handle runs alongside the FRONT lot only.
+//           The rear lot takes the full parcel width.
 // =====================
 
 function generateBattleaxe(
   parcelPolygon: Feature<Polygon>,
   frontEdgeIndex: number,
   minArea: number,
-  minFrontage: number
+  minFrontage: number,
+  handleWidthM: number = DEFAULT_HANDLE_WIDTH_M
 ): AutoSubdivisionConfig | null {
   const coords = parcelPolygon.geometry.coordinates[0];
   const n = coords.length - 1;
@@ -476,15 +480,15 @@ function generateBattleaxe(
   });
   const { depthM } = computeLotDimensions(parcelPolygon, frontEdgeIndex);
 
-  const handleW = BATTLEAXE_HANDLE_WIDTH_M;
-  const mainW = widthM - handleW;
+  const handleW = handleWidthM;
+  const mainW = widthM - handleW;   // front lot only uses this width
 
   if (mainW < Math.max(minFrontage, 6) + 1) return null;
 
   const halfDepth = depthM / 2;
   const lots: AutoLot[] = [];
 
-  // Front lot: first half of depth, main block width
+  // Front lot: main block width (excluding handle), front half of depth
   const frontSlice = createWidthDepthSlice(
     parcelPolygon, frontStart, u_deg, p_deg,
     -BIG_M, mainW,
@@ -506,10 +510,10 @@ function generateBattleaxe(
     issues: frontIssues,
   });
 
-  // Rear lot: second half of depth, main block width
+  // Rear lot: FULL PARCEL WIDTH, rear half of depth
   const rearSlice = createWidthDepthSlice(
     parcelPolygon, frontStart, u_deg, p_deg,
-    -BIG_M, mainW,
+    -BIG_M, widthM + BIG_M,   // full width — extends past both sides
     halfDepth, depthM + BIG_M
   );
   if (!rearSlice) return null;
@@ -527,10 +531,11 @@ function generateBattleaxe(
     issues: rearIssues,
   });
 
-  // Access handle — right side, full depth
-  const handleSlice = createWidthSlice(
+  // Access handle (CP) — right side, FRONT HALF ONLY (alongside front lot)
+  const handleSlice = createWidthDepthSlice(
     parcelPolygon, frontStart, u_deg, p_deg,
-    mainW, widthM + BIG_M
+    mainW, widthM + BIG_M,    // right-side strip
+    -BIG_M, halfDepth          // same depth as front lot
   );
   if (handleSlice) {
     lots.push({
@@ -552,7 +557,7 @@ function generateBattleaxe(
     id: "battleaxe",
     type: "battleaxe",
     name: "Battleaxe / Flag Lot",
-    description: `1 street lot + 1 rear lot, accessed via ${handleW} m side handle (CP)`,
+    description: `1 street lot + 1 full-width rear lot, ${handleW} m side handle (CP)`,
     lots,
     totalLots: lots.length,
     privateLotCount: 2,
@@ -575,7 +580,8 @@ function generateStrataAccess(
   frontEdgeIndex: number,
   totalLots: number,
   minArea: number,
-  minFrontage: number
+  minFrontage: number,
+  handleWidthM: number = DEFAULT_HANDLE_WIDTH_M
 ): AutoSubdivisionConfig | null {
   const coords = parcelPolygon.geometry.coordinates[0];
   const n = coords.length - 1;
@@ -593,7 +599,7 @@ function generateStrataAccess(
   });
   const { depthM } = computeLotDimensions(parcelPolygon, frontEdgeIndex);
 
-  const handleW = BATTLEAXE_HANDLE_WIDTH_M;
+  const handleW = handleWidthM;
   const mainW = widthM - handleW;
 
   if (mainW < Math.max(minFrontage, 6) + 1) return null;
@@ -680,7 +686,8 @@ function generateStrataCP(
   frontEdgeIndex: number,
   totalLots: number,
   minArea: number,
-  minFrontage: number
+  minFrontage: number,
+  cpWidthM: number = STRATA_CP_WIDTH_M
 ): AutoSubdivisionConfig | null {
   const coords = parcelPolygon.geometry.coordinates[0];
   const n = coords.length - 1;
@@ -698,7 +705,7 @@ function generateStrataCP(
   });
   const { depthM } = computeLotDimensions(parcelPolygon, frontEdgeIndex);
 
-  const cpW = STRATA_CP_WIDTH_M;
+  const cpW = cpWidthM;
   const halfCP = cpW / 2;
   const centerU = widthM / 2;
 
@@ -922,55 +929,60 @@ export function rebuildConfigFromDivisions(
   }
 
   if (config.type === "battleaxe") {
-    const handleW = config.handleWidthM ?? BATTLEAXE_HANDLE_WIDTH_M;
+    // Battleaxe is always exactly 2 private lots.
+    // newDivisions = [divDepth] — the single front/rear boundary.
+    // Front lot: mainW wide, front half.  Rear lot: full width, rear half.
+    // Handle CP: right-side strip, front half only.
+    const handleW = config.handleWidthM ?? DEFAULT_HANDLE_WIDTH_M;
     const mainW = widthM - handleW;
-    const boundaries = [0, ...newDivisions, depthM];
+    const divDepth = newDivisions[0] ?? depthM / 2;
     const lots: AutoLot[] = [];
 
-    for (let i = 0; i < boundaries.length - 1; i++) {
-      const dStart_m = i === 0 ? -BIG_M : boundaries[i];
-      const dEnd_m =
-        i === boundaries.length - 2 ? depthM + BIG_M : boundaries[i + 1];
-      const lotDepthM = boundaries[i + 1] - boundaries[i];
+    // Front lot
+    const frontSlice = createWidthDepthSlice(
+      parcelPolygon, frontStart, u_deg, p_deg,
+      -BIG_M, mainW, -BIG_M, divDepth
+    );
+    if (!frontSlice) return null;
+    const frontArea = turf.area(frontSlice);
+    const frontIssues: string[] = [];
+    if (frontArea < minArea) frontIssues.push(`Area ${Math.round(frontArea)} m² < min ${minArea} m²`);
+    if (mainW < minFrontage) frontIssues.push(`Frontage ${Math.round(mainW)} m < min ${minFrontage} m`);
+    lots.push({
+      id: "lot_1",
+      name: "Lot 1 (Street)",
+      type: "private",
+      geometry: frontSlice.geometry,
+      area: Math.round(frontArea),
+      frontage: Math.round(mainW),
+      compliant: frontIssues.length === 0,
+      issues: frontIssues,
+    });
 
-      const slice = createWidthDepthSlice(
-        parcelPolygon,
-        frontStart,
-        u_deg,
-        p_deg,
-        -BIG_M,
-        mainW,
-        dStart_m,
-        dEnd_m
-      );
-      if (!slice) return null;
+    // Rear lot — full width
+    const rearSlice = createWidthDepthSlice(
+      parcelPolygon, frontStart, u_deg, p_deg,
+      -BIG_M, widthM + BIG_M, divDepth, depthM + BIG_M
+    );
+    if (!rearSlice) return null;
+    const rearArea = turf.area(rearSlice);
+    const rearIssues: string[] = [];
+    if (rearArea < minArea) rearIssues.push(`Area ${Math.round(rearArea)} m² < min ${minArea} m²`);
+    lots.push({
+      id: "lot_2",
+      name: "Lot 2 (Rear)",
+      type: "private",
+      geometry: rearSlice.geometry,
+      area: Math.round(rearArea),
+      frontage: 0,
+      compliant: rearIssues.length === 0,
+      issues: rearIssues,
+    });
 
-      const area = turf.area(slice);
-      const issues: string[] = [];
-      if (area < minArea)
-        issues.push(`Area ${Math.round(area)} m² < min ${minArea} m²`);
-      if (i === 0 && mainW < minFrontage)
-        issues.push(`Frontage ${Math.round(mainW)} m < min ${minFrontage} m`);
-
-      lots.push({
-        id: `lot_${i + 1}`,
-        name: i === 0 ? `Lot 1 (Street)` : `Lot ${i + 1} (Rear)`,
-        type: "private",
-        geometry: slice.geometry,
-        area: Math.round(area),
-        frontage: i === 0 ? Math.round(mainW) : Math.round(lotDepthM),
-        compliant: issues.length === 0,
-        issues,
-      });
-    }
-
-    const handleSlice = createWidthSlice(
-      parcelPolygon,
-      frontStart,
-      u_deg,
-      p_deg,
-      mainW,
-      widthM + BIG_M
+    // Handle CP — front half only
+    const handleSlice = createWidthDepthSlice(
+      parcelPolygon, frontStart, u_deg, p_deg,
+      mainW, widthM + BIG_M, -BIG_M, divDepth
     );
     if (handleSlice) {
       lots.push({
@@ -998,7 +1010,7 @@ export function rebuildConfigFromDivisions(
 
   // strata-access uses the same depth-slicing logic as battleaxe rebuild
   if (config.type === "strata-access") {
-    const handleW = config.handleWidthM ?? BATTLEAXE_HANDLE_WIDTH_M;
+    const handleW = config.handleWidthM ?? DEFAULT_HANDLE_WIDTH_M;
     const mainW = widthM - handleW;
     const boundaries = [0, ...newDivisions, depthM];
     const lots: AutoLot[] = [];
@@ -1083,7 +1095,8 @@ export function generateAutoSubdivisionConfigs(
   parcelPolygon: Feature<Polygon>,
   targetLots: number,
   rCode: string,
-  frontEdgeIndex: number
+  frontEdgeIndex: number,
+  cpWidth: number = DEFAULT_HANDLE_WIDTH_M
 ): AutoSubdivisionConfig[] {
   const zoningReqs = getZoningRequirements(rCode, "single");
   const req = zoningReqs[0] ?? {
@@ -1111,7 +1124,8 @@ export function generateAutoSubdivisionConfigs(
       parcelPolygon,
       frontEdgeIndex,
       minArea,
-      minFrontage
+      minFrontage,
+      cpWidth
     );
     if (battleaxe) configs.push(battleaxe);
 
@@ -1121,7 +1135,8 @@ export function generateAutoSubdivisionConfigs(
       frontEdgeIndex,
       targetLots,
       minArea,
-      minFrontage
+      minFrontage,
+      cpWidth
     );
     if (strataAccess) configs.push(strataAccess);
 
@@ -1130,7 +1145,8 @@ export function generateAutoSubdivisionConfigs(
       frontEdgeIndex,
       targetLots,
       minArea,
-      minFrontage
+      minFrontage,
+      cpWidth
     );
     if (strataCP) configs.push(strataCP);
   }
