@@ -223,7 +223,14 @@ function computeLotDimensions(
   const widthM = turf.distance(turf.point(frontStart), turf.point(frontEnd), {
     units: "meters",
   });
-  const depthM = maxDepth_deg * METERS_PER_DEGREE;
+
+  // Use direction-aware factor so depthM is in true metres along p_deg
+  // (rather than always assuming 111 320 m/° which is only correct north-south).
+  const cosLat = Math.cos(frontStart[1] * Math.PI / 180);
+  const pMeterLen = METERS_PER_DEGREE * Math.sqrt(
+    (p_deg[0] * cosLat) ** 2 + p_deg[1] ** 2
+  );
+  const depthM = maxDepth_deg * pMeterLen;
 
   return { widthM, depthM };
 }
@@ -273,10 +280,24 @@ function normalizeEdgeDirection(
 }
 
 /**
- * Clip a strip that spans [uStart_m, uEnd_m] along the front edge
- * and extends infinitely (BIG) in the depth direction.
- * Pass uStart_m = -BIG_M or uEnd_m = widthM + BIG_M to cover irregular parcel corners.
+ * Return the degrees-per-metre conversion factor for moving along direction
+ * vector `v` (unit vector in degree-space) at the given latitude.
+ *
+ * At latitude φ:
+ *   1° longitude ≈ 111 320 · cos(φ) m
+ *   1° latitude  ≈ 111 320 m
+ *
+ * So the metre-length of 1 degree-unit along v = [vx, vy] is:
+ *   111 320 · sqrt( (vx · cos φ)² + vy² )
+ *
+ * and degrees-per-metre is the reciprocal of that.
  */
+function dirDegPerMeter(v: number[], latDeg: number): number {
+  const cosLat = Math.cos(latDeg * Math.PI / 180);
+  const mPerDeg = METERS_PER_DEGREE * Math.sqrt((v[0] * cosLat) ** 2 + v[1] ** 2);
+  return 1 / mPerDeg;
+}
+
 function createWidthSlice(
   parcelPolygon: Feature<Polygon>,
   frontStart: [number, number],
@@ -285,8 +306,11 @@ function createWidthSlice(
   uStart_m: number,
   uEnd_m: number
 ): Feature<Polygon> | null {
-  const uS = uStart_m / METERS_PER_DEGREE;
-  const uE = uEnd_m / METERS_PER_DEGREE;
+  const dpmU = dirDegPerMeter(u_deg, frontStart[1]);
+  const dpmP = dirDegPerMeter(p_deg, frontStart[1]);
+  const uS = uStart_m * dpmU;
+  const uE = uEnd_m * dpmU;
+  const bigP = BIG_M * dpmP; // BIG extension in degree-space along p
 
   const p1: [number, number] = [
     frontStart[0] + uS * u_deg[0],
@@ -298,11 +322,11 @@ function createWidthSlice(
   ];
 
   const corners: [number, number][] = [
-    [p1[0] - BIG * p_deg[0], p1[1] - BIG * p_deg[1]],
-    [p2[0] - BIG * p_deg[0], p2[1] - BIG * p_deg[1]],
-    [p2[0] + BIG * p_deg[0], p2[1] + BIG * p_deg[1]],
-    [p1[0] + BIG * p_deg[0], p1[1] + BIG * p_deg[1]],
-    [p1[0] - BIG * p_deg[0], p1[1] - BIG * p_deg[1]],
+    [p1[0] - bigP * p_deg[0], p1[1] - bigP * p_deg[1]],
+    [p2[0] - bigP * p_deg[0], p2[1] - bigP * p_deg[1]],
+    [p2[0] + bigP * p_deg[0], p2[1] + bigP * p_deg[1]],
+    [p1[0] + bigP * p_deg[0], p1[1] + bigP * p_deg[1]],
+    [p1[0] - bigP * p_deg[0], p1[1] - bigP * p_deg[1]],
   ];
 
   return intersectWithParcel(parcelPolygon, corners);
@@ -310,7 +334,7 @@ function createWidthSlice(
 
 /**
  * Clip a rectangle bounded in BOTH width [uStart_m, uEnd_m] and depth [dStart_m, dEnd_m].
- * Use BIG values for the boundary lots to ensure edge coverage.
+ * Use BIG_M values for the boundary lots to ensure edge coverage.
  */
 function createWidthDepthSlice(
   parcelPolygon: Feature<Polygon>,
@@ -322,10 +346,12 @@ function createWidthDepthSlice(
   dStart_m: number,
   dEnd_m: number
 ): Feature<Polygon> | null {
-  const uS = uStart_m / METERS_PER_DEGREE;
-  const uE = uEnd_m / METERS_PER_DEGREE;
-  const dS = dStart_m / METERS_PER_DEGREE;
-  const dE = dEnd_m / METERS_PER_DEGREE;
+  const dpmU = dirDegPerMeter(u_deg, frontStart[1]);
+  const dpmP = dirDegPerMeter(p_deg, frontStart[1]);
+  const uS = uStart_m * dpmU;
+  const uE = uEnd_m * dpmU;
+  const dS = dStart_m * dpmP;
+  const dE = dEnd_m * dpmP;
 
   const corner = (u: number, d: number): [number, number] => [
     frontStart[0] + u * u_deg[0] + d * p_deg[0],
