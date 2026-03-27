@@ -95,30 +95,49 @@ export function detectFrontBoundary(
   // Use all meaningful edges (skip slivers < 2 m)
   const meaningful = edges.filter((e) => e.length > 2);
 
-  // For angled blocks we can't just use latitude — use a score that combines:
-  //   1. How southerly the midpoint is (primary for Perth)
-  //   2. How "exterior-facing" the edge is (edges whose outward normal points most south)
-  //   3. Prefer edges that are part of the boundary of the parcel's bounding box (convex hull face)
-  const bbox = turf.bbox(turf.feature(polygon));
-  const bboxMinLat = bbox[1];
-  const bboxMaxLat = bbox[3];
-  const bboxLatRange = bboxMaxLat - bboxMinLat || 1;
+  // ── Outward-normal-based scoring (robust for angled blocks) ──────────────
+  // The street-facing edge should have its outward normal pointing most
+  // southward. This works regardless of parcel orientation.
+  //
+  // For each edge we:
+  //   1. Compute the unit edge direction vector
+  //   2. Derive two candidate perpendicular normals
+  //   3. Pick the one pointing AWAY from the parcel centroid (outward)
+  //   4. Score = southward component of that normal (higher = better)
+  //   5. Tiebreak: prefer the longer edge slightly
+  const centroid = turf.centroid(turf.feature(polygon));
+  const cx = centroid.geometry.coordinates[0];
+  const cy = centroid.geometry.coordinates[1];
 
-  // For each edge, compute a "street-facing score":
-  //   lower = more likely to be the street
+  const maxLen = Math.max(...meaningful.map((e) => e.length), 1);
+
   const scored = meaningful.map((e) => {
-    // Normalised distance from the south boundary of the bounding box
-    const latNorm = (e.midpoint[1] - bboxMinLat) / bboxLatRange; // 0 = south, 1 = north
+    const dx = e.end[0] - e.start[0];
+    const dy = e.end[1] - e.start[1];
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
 
-    // Edge direction: how horizontal (east-west) is the edge?
-    // A perfectly horizontal edge has |dy|/(|dx|+|dy|) = 0
-    const dx = Math.abs(e.end[0] - e.start[0]);
-    const dy = Math.abs(e.end[1] - e.start[1]);
-    const horizontality = dy / (dx + dy + 1e-9); // 0=horizontal, 1=vertical
+    // Two unit normals perpendicular to this edge
+    const nx1 = -dy / len;
+    const ny1 = dx / len;
+    const nx2 = dy / len;
+    const ny2 = -dx / len;
 
-    // Combined score: weight southerliness heavily, horizontality as tiebreaker
-    // For angled blocks the horizontality matters less, so we cap its contribution
-    return { edge: e, score: latNorm * 3 + horizontality * 0.5 };
+    // Pick the normal that points AWAY from the centroid.
+    // dot1 = n1 · (midpoint - centroid): positive means n1 points away → n1 is outward.
+    const midX = e.midpoint[0];
+    const midY = e.midpoint[1];
+    const dot1 = nx1 * (midX - cx) + ny1 * (midY - cy);
+    const outNy = dot1 > 0 ? ny1 : ny2;
+
+    // southwardness: higher = normal points more southward (negative lat direction)
+    // In GeoJSON lat increases northward, so southward = negative ny
+    const southwardness = -outNy; // range −1 (north) to +1 (south)
+
+    // Tiebreaker: slight preference for longer edges
+    const lengthBonus = (e.length / maxLen) * 0.05;
+
+    // Final score: LOWER = better street candidate (most southward outward normal)
+    return { edge: e, score: -(southwardness + lengthBonus) };
   });
 
   scored.sort((a, b) => a.score - b.score);
@@ -127,7 +146,7 @@ export function detectFrontBoundary(
   const parcelFeature = turf.feature(polygon);
   const { depthM } = computeLotDimensions(parcelFeature, detected.index);
 
-  // Candidates sorted by score (most likely first)
+  // Candidates sorted by score (most southward-facing first)
   const candidatesSorted = scored.map((s) => s.edge);
 
   return {
