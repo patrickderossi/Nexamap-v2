@@ -10,10 +10,13 @@ if (process.env.SENTRY_DSN) {
     Sentry.expressIntegration(),
   ];
 
-  if (!process.env.NETLIFY) {
-    // Only require profiling outside Netlify so the .node binaries aren’t bundled
+  if (!process.env.NETLIFY && !process.env.VERCEL) {
+    // Only require profiling on a long-lived Node server. Skip it on serverless
+    // platforms (Netlify/Vercel). The indirect require keeps bundlers from
+    // pulling in the native .node binary, which esbuild can't bundle.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { nodeProfilingIntegration } = require("@sentry/profiling-node");
+    const profilingPkg = "@sentry/profiling-node";
+    const { nodeProfilingIntegration } = require(profilingPkg);
     integrations.push(nodeProfilingIntegration());
   }
 
