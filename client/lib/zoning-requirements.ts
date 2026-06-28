@@ -93,7 +93,8 @@ export function getZoningRequirements(rCode: string, dwellingType?: 'grouped' | 
  * Extract R-Code from zoning string and return the higher value if multiple exist
  * (e.g., "R30 – Medium Density Residential" -> "R30", "R17.5/35" -> "R35")
  */
-export function extractRCode(zoning: string): string | null {
+export function extractRCode(zoning?: string | null): string | null {
+  if (!zoning || typeof zoning !== "string") return null;
   // First try to match complex R-Code patterns like "R17.5/35", "R20/40", etc.
   const complexMatch = zoning.match(/R\d+(?:\.\d+)?(?:\/\d+(?:\.\d+)?)*(?:-\w+)?/i);
   if (complexMatch) {

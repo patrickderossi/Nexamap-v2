@@ -230,3 +230,34 @@
   transform: scale(1.1) !important;
   box-shadow: 0 3px 8px rgba(0,0,0,0.4) !important;
 }
+
+/* ─── NexaMap "Professional Redesign" — global chrome ─────────────────────── */
+:root { --nm-bg: #E4E7E5; }
+html, body, #root { background: var(--nm-bg); }
+body { font-family: 'Hanken Grotesk', system-ui, -apple-system, sans-serif; }
+
+/* Frosted, rounded MapLibre zoom/compass controls to match the panels */
+.maplibregl-ctrl-group {
+  background: rgba(255,255,255,.92) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(20,28,24,.08) !important;
+  border-radius: 11px !important;
+  box-shadow: 0 6px 18px -6px rgba(16,24,20,.22) !important;
+  overflow: hidden;
+}
+.maplibregl-ctrl-group button { width: 34px !important; height: 32px !important; }
+.maplibregl-ctrl-group button + button { border-top: 1px solid rgba(20,28,24,.08) !important; }
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: grayscale(1) opacity(.7); }
+.maplibregl-ctrl-attrib {
+  background: rgba(255,255,255,.7) !important;
+  border-radius: 7px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9.5px;
+}
+
+/* Sleeker scrollbars inside the frosted panels */
+.maplibregl-map ::-webkit-scrollbar { width: 7px; }
+::-webkit-scrollbar-thumb { background: rgba(20,28,24,.16); border-radius: 7px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(20,28,24,.26); }
+::-webkit-scrollbar-track { background: transparent; }

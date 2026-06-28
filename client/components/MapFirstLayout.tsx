@@ -39,10 +39,15 @@ import {
   fitMapToBounds,
 } from "@/lib/listings-map-markers";
 import { toast } from "@/hooks/use-toast";
-import L from "leaflet";
 import { devLog } from "@/lib/logger";
 import type { SelectedParcel, PropertyData, PropertyValuation } from "../../shared/types";
-import { fetchPropertyValuation } from "@/lib/valuation-service";
+import { fetchPropertyUrl } from "@/lib/valuation-service";
+import { C, FONT, MONO, panel, floatChrome, badge } from "@/lib/nexa-ui";
+import {
+  fetchCouncilPlanning,
+  addressFromCadastral,
+  type CouncilPlanningResult,
+} from "@/lib/intramaps-service";
 
 // Lazy load heavy analysis components
 const SubdivisionManager = lazy(() =>
@@ -114,12 +119,46 @@ export function MapFirstLayout({
   const [valuationError, setValuationError] = useState<string | null>(null);
   const valuationRequestRef = useRef(0);
 
+  // property.com.au estimate link — pre-resolved to the property's exact
+  // `-pid-` page via REA's free address-suggest API (no key, no scrape). We
+  // pre-fetch it when a parcel is selected so the "Get Estimate" button is a
+  // real, ready link by the time the user reads the panel.
+  const [estimateUrl, setEstimateUrl] = useState<string | null>(null);
+  const [estimateLoading, setEstimateLoading] = useState(false);
+  const estimateReqRef = useRef(0);
+
+  useEffect(() => {
+    const pd: any = selectedParcel?.data;
+    const { address: estAddr, suburb: estSuburb } = addressFromCadastral(pd?.cadastralInfo);
+    setEstimateUrl(null);
+    if (!estAddr || !estSuburb) {
+      setEstimateLoading(false);
+      return;
+    }
+    const reqId = ++estimateReqRef.current;
+    setEstimateLoading(true);
+    fetchPropertyUrl(estAddr, estSuburb)
+      .then((url) => {
+        if (estimateReqRef.current === reqId) setEstimateUrl(url);
+      })
+      .catch((err) => {
+        if (estimateReqRef.current === reqId) devLog.warn("estimate URL resolve failed:", err);
+      })
+      .finally(() => {
+        if (estimateReqRef.current === reqId) setEstimateLoading(false);
+      });
+  }, [selectedParcel]);
+
+  const [councilPlanning, setCouncilPlanning] = useState<CouncilPlanningResult | null>(null);
+  const [councilPlanningLoading, setCouncilPlanningLoading] = useState(false);
+  const planningRequestRef = useRef(0);
+
   const [listings, setListings] = useState<Listing[]>([]);
   const [listingsLoading, setListingsLoading] = useState(false);
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
   const listingsLayerRef = useRef<L.LayerGroup | null>(null);
 
-  const mapRef = useRef<L.Map | null>(null);
+  const mapRef = useRef<any>(null);
   const [layers, setLayers] = useState({
     placesAddresses: false,
     propertyPlanning: false,
@@ -131,13 +170,26 @@ export function MapFirstLayout({
     health: false,
     schools: false,
     transport: false,
+    mrsZone: false,
+    lpsZones: false,
+    lpsOverlays: false,
+    heritageState: false,
+    heritageLocal: false,
+    aboriginalHeritage: false,
+    contamination: false,
+    envSensitive: false,
+    airportNoise: false,
+    roadRailNoise: false,
+    bushForever: false,
+    acidSulfateSoil: false,
+    drinkingWater: false,
   });
   const [propertyControls, setPropertyControls] =
     useState<PropertyControlsState>({
       boundaryDimensions: false, // Default to NOT showing dimensions
       propertyAngles: false, // Default to NOT showing angles
     });
-  const [baseLayer, setBaseLayer] = useState<BaseLayerType>("osm");
+  const [baseLayer, setBaseLayer] = useState<BaseLayerType>("positron");
 
   // Auto-enable Cadastre (Block Lines) when address is searched
   useEffect(() => {
@@ -223,37 +275,43 @@ export function MapFirstLayout({
       setValuationLoading(false);
       setValuationError(null);
 
-      const suburb = propertyData?.cadastralInfo?.locality || propertyData?.shire || "";
-      const rawLotSize = propertyData?.lotSize || propertyData?.area;
-      const lotSizeNum = rawLotSize ? parseFloat(String(rawLotSize).replace(/[^0-9.]/g, "")) : 0;
-
-      if (!suburb || lotSizeNum <= 0) {
-        setValuationError(!suburb ? "Suburb not available" : "Lot size not available");
-        return;
+      // Council planning (IntraMaps): authoritative scheme/zone + LDP/precinct overlays.
+      setCouncilPlanning(null);
+      const { address: planningAddress, suburb: planningSuburb } = addressFromCadastral(
+        propertyData?.cadastralInfo as any,
+      );
+      if (planningAddress && planningSuburb) {
+        const planningId = ++planningRequestRef.current;
+        setCouncilPlanningLoading(true);
+        fetchCouncilPlanning({ address: planningAddress, suburb: planningSuburb })
+          .then((result) => {
+            if (planningRequestRef.current === planningId) setCouncilPlanning(result);
+          })
+          .catch(() => {
+            if (planningRequestRef.current === planningId)
+              setCouncilPlanning({ success: false, reason: "error" });
+          })
+          .finally(() => {
+            if (planningRequestRef.current === planningId) setCouncilPlanningLoading(false);
+          });
+      } else {
+        setCouncilPlanningLoading(false);
       }
 
-      const requestId = ++valuationRequestRef.current;
-      setValuationLoading(true);
-      fetchPropertyValuation(suburb, lotSizeNum)
-        .then((result) => {
-          if (valuationRequestRef.current === requestId) {
-            setValuationData(result);
-          }
-        })
-        .catch((err) => {
-          if (valuationRequestRef.current === requestId) {
-            devLog.error("Valuation fetch failed:", err);
-            setValuationError("Could not estimate value");
-          }
-        })
-        .finally(() => {
-          if (valuationRequestRef.current === requestId) {
-            setValuationLoading(false);
-          }
-        });
+      // NOTE: the property value estimate is no longer fetched. "Get Estimate"
+      // is now a pre-built link to the property.com.au page (see `estimateUrl`).
     },
     [onPropertySelect],
   );
+
+  // Merge slow supplementary data (amenities, elevation, postcode, road class)
+  // into the already-visible panel once it arrives — without disturbing the
+  // valuation/council-planning fetches kicked off in handlePropertySelect.
+  const handlePropertyEnrich = useCallback((extraData: any) => {
+    setSelectedParcel((prev) =>
+      prev ? { ...prev, data: { ...prev.data, ...extraData } } : prev,
+    );
+  }, []);
 
   const handleClearLines = useCallback(() => {
     const actions = (window as any).subdivisionActions;
@@ -439,24 +497,57 @@ export function MapFirstLayout({
     <div className="relative h-full w-full overflow-hidden">
       {/* Header */}
 
-      {/* Search Bar - Clean Positioning */}
-      <div className="absolute top-20 left-4 right-4 z-[500]">
-        <div className="max-w-lg mx-auto">
-          <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-3">
-            <div className="flex items-center space-x-3">
-              <Search className="w-5 h-5 text-gray-500 flex-shrink-0" />
-              <SimpleGooglePlacesInput
-                onPlaceSelected={handleSearch}
-                placeholder="Search Western Australia..."
-                className="flex-1 border-0 focus:ring-0 bg-transparent outline-none text-gray-900"
-              />
-              {subdivisionMode.active && (
-                <div className="px-2 py-1 bg-blue-100 text-blue-700 rounded-lg text-xs font-medium">
-                  Subdivision Mode
-                </div>
-              )}
-            </div>
-          </div>
+      {/* Search Bar — floating frosted pill (NexaMap redesign) */}
+      <div
+        className="absolute top-[18px] left-1/2 z-[500]"
+        style={{ transform: "translateX(-50%)", width: 540, maxWidth: "46vw" }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 11,
+            height: 48,
+            padding: "0 8px 0 15px",
+            background: "rgba(255,255,255,.9)",
+            backdropFilter: "blur(20px)",
+            WebkitBackdropFilter: "blur(20px)",
+            border: `1px solid ${C.cardBorder}`,
+            borderRadius: 14,
+            boxShadow:
+              "0 2px 5px rgba(16,24,20,.05), 0 14px 34px -8px rgba(16,24,20,.2)",
+            fontFamily: FONT,
+          }}
+        >
+          <Search className="w-[18px] h-[18px] flex-shrink-0" style={{ color: "#8a918a" }} />
+          <SimpleGooglePlacesInput
+            onPlaceSelected={handleSearch}
+            placeholder="Search address, lot, suburb, or coordinates…"
+            className="flex-1 border-0 focus:ring-0 bg-transparent outline-none"
+            style={{ fontFamily: FONT, fontWeight: 500, fontSize: 14, color: C.ink }}
+          />
+          {subdivisionMode.active ? (
+            <span style={{ ...badge("blue"), height: 24, borderRadius: 7 }}>
+              Subdivision
+            </span>
+          ) : (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                height: 24,
+                padding: "0 8px",
+                borderRadius: 7,
+                background: "rgba(20,28,24,.05)",
+                color: C.label,
+                fontFamily: MONO,
+                fontWeight: 600,
+                fontSize: 11,
+              }}
+            >
+              ⌘K
+            </span>
+          )}
         </div>
       </div>
 
@@ -469,6 +560,7 @@ export function MapFirstLayout({
           address={address}
           layers={layers}
           onPropertyClick={handlePropertySelect}
+          onPropertyEnrich={handlePropertyEnrich}
           propertyControls={propertyControls}
           onMapReady={(map) => (mapRef.current = map)}
           subdivisionModeActive={subdivisionMode.active}
@@ -526,7 +618,7 @@ export function MapFirstLayout({
             >
               <LotYieldPanel
                 selectedParcel={selectedParcel ?? undefined}
-                propertyData={data}
+                propertyData={selectedParcel?.data ?? data}
                 show={showYieldEstimator}
                 onClose={() => setShowYieldEstimator(false)}
               />
@@ -644,33 +736,46 @@ export function MapFirstLayout({
         />
       </div>
 
-      {/* Left Sidebar Panel */}
+      {/* Left Sidebar Panel — floating frosted panel (NexaMap redesign) */}
       <div
-        className={`absolute top-0 left-0 h-full bg-white shadow-xl border-r border-gray-200 transition-transform duration-300 z-[1000] flex flex-col ${
+        className={`absolute z-[1000] flex flex-col transition-transform duration-300 ${
           sidebarOpen && !subdivisionMode.active
             ? "translate-x-0"
-            : "-translate-x-full"
+            : "-translate-x-[380px]"
         }`}
-        style={{ width: "350px" }}
+        style={{ left: 14, top: 14, bottom: 14, width: 352, ...panel }}
       >
-        {/* Sidebar Header */}
-        <div className="bg-white border-b border-gray-200 p-4 flex-shrink-0">
-          <div className="flex items-center justify-between mb-3">
-            <img
-              src="https://cdn.builder.io/api/v1/image/assets%2F0df748b9b86d4bc5af1be6fda4f6f0d0%2F9fbd34283535421db2163a3b996c4e11?format=webp&width=800"
-              alt="Nexamap Logo"
-              className="h-10 w-auto object-contain"
-            />
-          </div>
-          <div className="text-center">
-            <p className="text-gray-600 text-sm">
-              {address || "Search for a property"}
-            </p>
-          </div>
+        {/* Brand header */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "13px 16px 12px",
+            borderBottom: `1px solid ${C.line}`,
+            flexShrink: 0,
+          }}
+        >
+          <img
+            src="https://cdn.builder.io/api/v1/image/assets%2F0df748b9b86d4bc5af1be6fda4f6f0d0%2F9fbd34283535421db2163a3b996c4e11?format=webp&width=800"
+            alt="NexaMap"
+            style={{ height: 30, width: "auto", objectFit: "contain" }}
+          />
+          <span
+            style={{
+              fontFamily: MONO,
+              fontWeight: 500,
+              fontSize: "9.5px",
+              letterSpacing: ".14em",
+              color: C.faint,
+            }}
+          >
+            PROPERTY INTELLIGENCE
+          </span>
         </div>
 
-        {/* Sidebar Content - Tabbed Interface - Flex-1 to take remaining space */}
-        <div className="flex-1 w-full overflow-hidden">
+        {/* Tabbed content */}
+        <div className="flex-1 w-full overflow-hidden" style={{ display: "flex", flexDirection: "column" }}>
           <PropertyInfoTabs
             selectedParcel={selectedParcel}
             address={address}
@@ -683,6 +788,10 @@ export function MapFirstLayout({
             valuationData={valuationData}
             valuationLoading={valuationLoading}
             valuationError={valuationError}
+            estimateUrl={estimateUrl}
+            estimateLoading={estimateLoading}
+            councilPlanning={councilPlanning}
+            councilPlanningLoading={councilPlanningLoading}
           />
         </div>
       </div>
@@ -691,25 +800,33 @@ export function MapFirstLayout({
       {!subdivisionMode.active && (
         <button
           onClick={handleSidebarToggle}
-          className="absolute top-1/2 transform -translate-y-1/2 bg-white border border-gray-200 rounded-r-lg p-2 shadow-lg hover:bg-gray-50 z-[1001] transition-all duration-300"
-          style={{ left: sidebarOpen ? "350px" : "0px" }}
+          className="absolute top-1/2 z-[1001] flex items-center justify-center transition-all duration-300"
+          style={{
+            transform: "translateY(-50%)",
+            left: sidebarOpen ? 372 : 8,
+            width: 26,
+            height: 40,
+            borderRadius: 10,
+            color: C.muted,
+            ...floatChrome,
+          }}
         >
           {sidebarOpen ? (
-            <ChevronLeft className="w-5 h-5 text-gray-600" />
+            <ChevronLeft className="w-[18px] h-[18px]" />
           ) : (
-            <ChevronRight className="w-5 h-5 text-gray-600" />
+            <ChevronRight className="w-[18px] h-[18px]" />
           )}
         </button>
       )}
 
-      {/* Right Sidebar - Map Layers & Analysis Tools */}
+      {/* Right Sidebar - Map Layers & Analysis Tools (floating frosted panel) */}
       <div
-        className={`absolute top-0 right-0 h-full bg-white shadow-xl border-l border-gray-200 transition-transform duration-300 z-[1000] flex flex-col ${
+        className={`absolute z-[1000] flex flex-col transition-transform duration-300 ${
           rightSidebarOpen && !subdivisionMode.active
             ? "translate-x-0"
-            : "translate-x-full"
+            : "translate-x-[360px]"
         }`}
-        style={{ width: "280px" }}
+        style={{ right: 14, top: 14, bottom: 14, width: 316, ...panel }}
       >
         <div className="flex-1 overflow-y-auto">
           <FloatingLayerControls
@@ -723,7 +840,7 @@ export function MapFirstLayout({
           />
 
           {selectedParcel && !subdivisionMode.active && (
-            <div className="border-t border-gray-200">
+            <div style={{ borderTop: `1px solid ${C.line}` }}>
               <MainToolbar
                 selectedParcel={selectedParcel}
                 showYieldEstimator={showYieldEstimator}
@@ -745,13 +862,21 @@ export function MapFirstLayout({
       {!subdivisionMode.active && (
         <button
           onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
-          className="absolute top-1/2 transform -translate-y-1/2 bg-white border border-gray-200 rounded-l-lg p-2 shadow-lg hover:bg-gray-50 z-[1001] transition-all duration-300"
-          style={{ right: rightSidebarOpen ? "280px" : "0px" }}
+          className="absolute top-1/2 z-[1001] flex items-center justify-center transition-all duration-300"
+          style={{
+            transform: "translateY(-50%)",
+            right: rightSidebarOpen ? 336 : 8,
+            width: 26,
+            height: 40,
+            borderRadius: 10,
+            color: C.muted,
+            ...floatChrome,
+          }}
         >
           {rightSidebarOpen ? (
-            <ChevronRight className="w-5 h-5 text-gray-600" />
+            <ChevronRight className="w-[18px] h-[18px]" />
           ) : (
-            <ChevronLeft className="w-5 h-5 text-gray-600" />
+            <ChevronLeft className="w-[18px] h-[18px]" />
           )}
         </button>
       )}

@@ -13,12 +13,14 @@ interface SimpleGooglePlacesInputProps {
   onPlaceSelected: (query: string, coordinates?: [number, number]) => void;
   placeholder?: string;
   className?: string;
+  style?: React.CSSProperties;
 }
 
 export function SimpleGooglePlacesInput({
   onPlaceSelected,
   placeholder = "Search Western Australia...",
-  className = ""
+  className = "",
+  style,
 }: SimpleGooglePlacesInputProps) {
   const [value, setValue] = useState("");
   const [suggestions, setSuggestions] = useState<PlaceResult[]>([]);
@@ -210,7 +212,7 @@ export function SimpleGooglePlacesInput({
         onFocus={() => value.length >= 2 && setShowSuggestions(true)}
         placeholder={placeholder}
         className={`w-full h-10 px-3 text-base bg-transparent border-0 focus:ring-0 outline-none placeholder:text-gray-400 ${className}`}
-        style={{ textOverflow: 'ellipsis' }}
+        style={{ textOverflow: 'ellipsis', ...style }}
       />
 
       {showSuggestions && suggestions.length > 0 && (

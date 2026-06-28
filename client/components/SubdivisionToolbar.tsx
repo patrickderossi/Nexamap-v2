@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { C, FONT, MONO } from "@/lib/nexa-ui";
 import {
   Tooltip,
   TooltipContent,
@@ -16,7 +17,6 @@ import {
   HelpCircle,
   Wand2,
 } from "lucide-react";
-import L from "leaflet";
 import { toast } from "@/hooks/use-toast";
 import { VideoTutorialModal } from "./VideoTutorialModal";
 import { devLog } from "@/lib/logger";
@@ -38,7 +38,7 @@ interface SubdivisionToolbarProps {
   hasDrawnLines?: boolean;
   hasGeneratedLots?: boolean;
   selectedParcel?: SelectedParcel;
-  map?: L.Map | null;
+  map?: any | null;
   propertyData?: SelectedParcel;
 }
 
@@ -95,9 +95,23 @@ function SubdivisionToolbarComponent({
 
   return (
     <TooltipProvider>
-      <div className="bg-white border-2 border-blue-200 rounded-xl shadow-lg p-4 flex items-center gap-3 backdrop-blur-sm bg-white/95">
-        <div className="text-xs text-blue-600 font-medium mr-2">
-          Subdivision Tools
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "8px 12px",
+          background: "rgba(255,255,255,.9)",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+          border: `1px solid ${C.cardBorder}`,
+          borderRadius: 15,
+          boxShadow: "0 2px 5px rgba(16,24,20,.05), 0 16px 36px -8px rgba(16,24,20,.22)",
+          fontFamily: FONT,
+        }}
+      >
+        <div style={{ fontFamily: MONO, fontWeight: 600, fontSize: 10.5, letterSpacing: ".1em", color: C.label, marginRight: 2 }}>
+          SUBDIVISION
         </div>
 
         {/* How to use? Button */}

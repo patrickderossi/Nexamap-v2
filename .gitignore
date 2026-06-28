@@ -24,4 +24,11 @@ dist-ssr
 *.sw?
 
 .config/
-!.env
+
+# property.com.au scrape diagnostics
+scrape-debug/
+
+# Secrets — never commit
+.env
+.env.local
+.env.*.local

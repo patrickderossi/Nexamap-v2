@@ -8,6 +8,61 @@ import {
   ListingFilters,
   Listing,
 } from "../services/realEstateScraperService";
+import { scrapePropertyEstimate, resolvePropertyComAuUrl } from "../services/propertyEstimateService";
+
+/**
+ * Resolve the property.com.au page URL for an address (no estimate scrape).
+ * GET /api/listings/property-url?address=2 Giles Pl&suburb=Mirrabooka
+ */
+export const handlePropertyUrl: RequestHandler = async (req, res) => {
+  try {
+    const { address, suburb } = req.query as { address?: string; suburb?: string };
+    if (!address || !suburb) {
+      return res.status(400).json({ error: "address and suburb are required" });
+    }
+    const url = await resolvePropertyComAuUrl(address.toString(), suburb.toString());
+    if (!url) {
+      return res.status(404).json({ error: "property.com.au doesn't have a page for this address" });
+    }
+    res.json({ url });
+  } catch (error) {
+    console.error("❌ property.com.au URL resolve error:", error);
+    const msg = error instanceof Error ? error.message : "URL resolve failed";
+    const needsKey = /SCRAPINGBEE_API_KEY/i.test(msg);
+    res.status(needsKey ? 503 : 500).json({
+      error: needsKey ? "Estimate service not configured (missing ScrapingBee key)" : "Could not resolve property.com.au URL",
+      message: msg,
+    });
+  }
+};
+
+/**
+ * Property value estimate scraped from property.com.au (via ScrapingBee).
+ * GET /api/listings/property-estimate?address=29 Hampton Rd&suburb=Menora
+ */
+export const handlePropertyEstimate: RequestHandler = async (req, res) => {
+  try {
+    const { address, suburb } = req.query as { address?: string; suburb?: string };
+    if (!address || !suburb) {
+      return res.status(400).json({ error: "address and suburb are required" });
+    }
+    console.log(`🏷️ property.com.au estimate for: ${address}, ${suburb}`);
+
+    const result = await scrapePropertyEstimate(address.toString(), suburb.toString());
+    if (!result) {
+      return res.status(404).json({ error: "property.com.au doesn't have a value estimate for this address" });
+    }
+    res.json(result);
+  } catch (error) {
+    console.error("❌ property.com.au estimate error:", error);
+    const msg = error instanceof Error ? error.message : "Estimate scrape failed";
+    const needsKey = /SCRAPINGBEE_API_KEY/i.test(msg);
+    res.status(needsKey ? 503 : 500).json({
+      error: needsKey ? "Estimate service not configured (missing ScrapingBee key)" : "Estimate failed",
+      message: msg,
+    });
+  }
+};
 
 interface SearchQuery {
   suburb?: string;

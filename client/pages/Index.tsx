@@ -33,19 +33,37 @@ export default function Index() {
       lotSize: propertyData.lotSize || "Unknown",
       lotDimensions: propertyData.dimensions || "Unknown",
       planNumber: propertyData.planNumber || "Unknown",
-      zoning: propertyData.rCode || "Unknown", // This is the actual R-Code
-      shire: propertyData.zoning || "Unknown Shire", // This is the shire/scheme name
-      landUse: propertyData.landUse || "Unknown", // Land use classification
+      zoning: propertyData.rCode || "Unknown",
+      shire: propertyData.zoning || propertyData.lpsZone || "Unknown Shire",
+      landUse: propertyData.landUse || "Unknown",
+      mrsZone: propertyData.mrsZone || "Unknown",
+      lpsOverlays: propertyData.lpsOverlays || [],
+      lgaName: propertyData.lgaName || "Unknown",
       bushfire: propertyData.balRating || "Unknown",
-      heritage: propertyData.heritage || "Unknown",
-      floodRisk: propertyData.floodRisk || "Unknown",
+      bushfirePlanningArea: propertyData.bushfirePlanningArea,
+      heritage: propertyData.heritage || "No",
+      heritageState: propertyData.heritageState,
+      heritageStateId: propertyData.heritageStateId,
+      heritageLocal: propertyData.heritageLocal,
+      floodRisk: propertyData.floodZone || propertyData.floodRisk || "Unknown",
+      contamination: propertyData.contamination || "Unknown",
+      acidSulfateSoil: propertyData.acidSulfateSoil || "Unknown",
+      publicDrinkingWater: propertyData.publicDrinkingWater || "Unknown",
+      aboriginalHeritage: propertyData.aboriginalHeritage || "Unknown",
+      airportNoiseBuf: propertyData.airportNoiseBuf,
+      roadRailNoiseBuf: propertyData.roadRailNoiseBuf,
       soilType: propertyData.soilType || "Unknown",
-      contamination: "Unknown",
       easements: "Unknown",
       coordinates: coordinates,
       boundaryLengths: propertyData.boundaryLengths,
       perimeter: propertyData.perimeter,
       interiorAngles: propertyData.interiorAngles,
+      // External APIs
+      elevationM: propertyData.elevationM,
+      postcode: propertyData.postcode,
+      sa2Name: propertyData.sa2Name,
+      roadClassification: propertyData.roadClassification,
+      roadNetworkType: propertyData.roadNetworkType,
     };
 
     setSearchResults(resultsWithCoordinates);
@@ -82,19 +100,37 @@ export default function Index() {
           lotSize: realPropertyData.lotSize || "Unknown",
           lotDimensions: realPropertyData.dimensions || "Unknown",
           planNumber: realPropertyData.planNumber || "Unknown",
-          zoning: realPropertyData.rCode || "Unknown", // This is the actual R-Code
-          shire: realPropertyData.zoning || "Unknown Shire", // This is the shire/scheme name
-          landUse: realPropertyData.landUse || "Unknown", // Land use classification
-          bushfire: realPropertyData.balRating || "Unknown", // Map balRating to bushfire field
-          heritage: realPropertyData.heritage || "Unknown",
-          floodRisk: realPropertyData.floodRisk || "Unknown",
+          zoning: realPropertyData.rCode || "Unknown",
+          shire: realPropertyData.zoning || realPropertyData.lpsZone || "Unknown Shire",
+          landUse: realPropertyData.landUse || "Unknown",
+          mrsZone: realPropertyData.mrsZone || "Unknown",
+          lpsOverlays: realPropertyData.lpsOverlays || [],
+          lgaName: realPropertyData.lgaName || "Unknown",
+          bushfire: realPropertyData.balRating || "Unknown",
+          bushfirePlanningArea: realPropertyData.bushfirePlanningArea,
+          heritage: realPropertyData.heritage || "No",
+          heritageState: realPropertyData.heritageState,
+          heritageStateId: realPropertyData.heritageStateId,
+          heritageLocal: realPropertyData.heritageLocal,
+          floodRisk: realPropertyData.floodZone || realPropertyData.floodRisk || "Unknown",
+          contamination: realPropertyData.contamination || "Unknown",
+          acidSulfateSoil: realPropertyData.acidSulfateSoil || "Unknown",
+          publicDrinkingWater: realPropertyData.publicDrinkingWater || "Unknown",
+          aboriginalHeritage: realPropertyData.aboriginalHeritage || "Unknown",
+          airportNoiseBuf: realPropertyData.airportNoiseBuf,
+          roadRailNoiseBuf: realPropertyData.roadRailNoiseBuf,
           soilType: realPropertyData.soilType || "Unknown",
-          contamination: "Unknown", // Not implemented yet
-          easements: "Unknown", // Not implemented yet
+          easements: "Unknown",
           coordinates: coordinates,
           boundaryLengths: realPropertyData.boundaryLengths,
           perimeter: realPropertyData.perimeter,
           interiorAngles: realPropertyData.interiorAngles,
+          // External APIs
+          elevationM: realPropertyData.elevationM,
+          postcode: realPropertyData.postcode,
+          sa2Name: realPropertyData.sa2Name,
+          roadClassification: realPropertyData.roadClassification,
+          roadNetworkType: realPropertyData.roadNetworkType,
         };
 
         devLog.log("🏠 Final Results:", resultsWithCoordinates);

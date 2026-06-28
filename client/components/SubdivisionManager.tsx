@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import L from "leaflet";
+import maplibregl from "maplibre-gl";
+import L from "@/lib/leaflet-shim";
 import * as turf from "@turf/turf";
 import { SubdivisionToolbar, SubdivisionMode } from "./SubdivisionToolbar";
 import { SubdivisionSidebar, SubLot, ParentLot } from "./SubdivisionSidebar";
@@ -21,7 +22,7 @@ import { devLog } from "@/lib/logger";
 import type { SelectedParcel } from "../../shared/types";
 
 interface SubdivisionManagerProps {
-  map: L.Map | null;
+  map: any | null;
   subdivisionMode: SubdivisionMode;
   selectedParcel?: SelectedParcel;
   onModeChange?: (mode: SubdivisionMode) => void;
@@ -33,9 +34,28 @@ interface SubdivisionManagerProps {
 
 interface DrawnLine {
   id: string;
-  geometry: L.Polyline;
   coordinates: [number, number][];
 }
+
+type LL = { lng: number; lat: number };
+
+// MapLibre source/layer ids for the drawing visuals (managed directly, not via
+// the shim, so they can be updated per-frame with setData — no add/remove churn).
+const DRAW = {
+  linesSrc: "subdiv-lines-src",
+  lines: "subdiv-lines",
+  rubberSrc: "subdiv-rubber-src",
+  rubber: "subdiv-rubber",
+  ptsSrc: "subdiv-pts-src",
+  snap: "subdiv-snap",
+  start: "subdiv-start",
+} as const;
+const EMPTY_FC = { type: "FeatureCollection" as const, features: [] };
+const ptFeature = (p: { lng: number; lat: number }, kind: string) => ({
+  type: "Feature" as const,
+  properties: { kind },
+  geometry: { type: "Point" as const, coordinates: [p.lng, p.lat] },
+});
 
 interface GeneratedLot {
   id: string;
@@ -62,30 +82,25 @@ export function SubdivisionManager({
   const [generatedLots, setGeneratedLots] = useState<GeneratedLot[]>([]);
   const [showAutoSubdivide, setShowAutoSubdivide] = useState(false);
 
-  // Drawing state
-  const [currentDrawingPoint, setCurrentDrawingPoint] =
-    useState<L.LatLng | null>(null);
-  const [isSnapping, setIsSnapping] = useState(false);
-  const [snapPoint, setSnapPoint] = useState<L.LatLng | null>(null);
-  const [nearestCornerDistance, setNearestCornerDistance] = useState<
-    number | null
-  >(null);
+  // Transient drawing state lives in refs (NOT React state) so moving the cursor
+  // never triggers a re-render or re-registers the map handlers — that was the
+  // source of the old glitchiness.
+  const drawStartRef = useRef<LL | null>(null);
+  const snapRef = useRef<LL | null>(null);
+  const drawnLinesRef = useRef<DrawnLine[]>([]);
+  const lengthMarkerRef = useRef<maplibregl.Marker | null>(null);
 
   // Refs for map layers
-  const parentLotLayerRef = useRef<L.GeoJSON | null>(null);
-  const drawnLineLayersRef = useRef<L.Polyline[]>([]);
-  const generatedLotLayersRef = useRef<L.Layer[]>([]);
-  const autoHandleLayersRef = useRef<L.Layer[]>([]);
-  const edgeHighlightLayerRef = useRef<L.Polyline | null>(null);
+  const parentLotLayerRef = useRef<any | null>(null);
+  const generatedLotLayersRef = useRef<any[]>([]);
+  const autoHandleLayersRef = useRef<any[]>([]);
+  const edgeHighlightLayerRef = useRef<any | null>(null);
 
   // Ref holding the active auto-subdivision config (for handle dragging)
   const activeAutoConfigRef = useRef<ApplyableConfig | null>(null);
 
-  // Visual feedback refs
-  const rubberBandLineRef = useRef<L.Polyline | null>(null);
-  const snapIndicatorRef = useRef<L.CircleMarker | null>(null);
-  const startPointIndicatorRef = useRef<L.CircleMarker | null>(null);
-  const distanceIndicatorRef = useRef<L.Marker | null>(null);
+  // Keep a live mirror of drawn lines for the (stable) drawing handlers.
+  useEffect(() => { drawnLinesRef.current = drawnLines; }, [drawnLines]);
 
   // Colors for generated lots
   const LOT_COLORS = [
@@ -114,9 +129,8 @@ export function SubdivisionManager({
       setParentLot(undefined);
       setDrawnLines([]);
       setGeneratedLots([]);
-      setCurrentDrawingPoint(null);
-      setIsSnapping(false);
-      setSnapPoint(null);
+      drawStartRef.current = null;
+      snapRef.current = null;
       setShowAutoSubdivide(false);
     }
   }, [subdivisionMode.active]);
@@ -228,7 +242,7 @@ export function SubdivisionManager({
         };
 
         if (parentLotLayerRef.current) {
-          map.removeLayer(parentLotLayerRef.current);
+          (parentLotLayerRef.current)?.remove?.();
         }
 
         const parentFeature: GeoJSON.Feature = {
@@ -384,46 +398,33 @@ export function SubdivisionManager({
 
     // Clear parent lot
     if (parentLotLayerRef.current) {
-      map.removeLayer(parentLotLayerRef.current);
+      (parentLotLayerRef.current)?.remove?.();
       parentLotLayerRef.current = null;
     }
 
-    // Clear drawn lines
-    drawnLineLayersRef.current.forEach((layer) => map.removeLayer(layer));
-    drawnLineLayersRef.current = [];
-
     // Clear generated lots
-    generatedLotLayersRef.current.forEach((layer) => map.removeLayer(layer));
+    generatedLotLayersRef.current.forEach((layer) => (layer)?.remove?.());
     generatedLotLayersRef.current = [];
 
     // Clear auto handles
-    autoHandleLayersRef.current.forEach((layer) => map.removeLayer(layer));
+    autoHandleLayersRef.current.forEach((layer) => (layer)?.remove?.());
     autoHandleLayersRef.current = [];
     activeAutoConfigRef.current = null;
 
     // Clear edge highlight
     if (edgeHighlightLayerRef.current) {
-      map.removeLayer(edgeHighlightLayerRef.current);
+      (edgeHighlightLayerRef.current)?.remove?.();
       edgeHighlightLayerRef.current = null;
     }
 
-    // Clear visual feedback
-    if (rubberBandLineRef.current) {
-      map.removeLayer(rubberBandLineRef.current);
-      rubberBandLineRef.current = null;
-    }
-    if (snapIndicatorRef.current) {
-      map.removeLayer(snapIndicatorRef.current);
-      snapIndicatorRef.current = null;
-    }
-    if (startPointIndicatorRef.current) {
-      map.removeLayer(startPointIndicatorRef.current);
-      startPointIndicatorRef.current = null;
-    }
-    if (distanceIndicatorRef.current) {
-      map.removeLayer(distanceIndicatorRef.current);
-      distanceIndicatorRef.current = null;
-    }
+    // Clear all drawing sources/layers + transient drawing state
+    const dm = map as maplibregl.Map;
+    [DRAW.lines, DRAW.rubber, DRAW.snap, DRAW.start].forEach((id) => { if (dm.getLayer(id)) dm.removeLayer(id); });
+    [DRAW.linesSrc, DRAW.rubberSrc, DRAW.ptsSrc].forEach((id) => { if (dm.getSource(id)) dm.removeSource(id); });
+    lengthMarkerRef.current?.remove();
+    lengthMarkerRef.current = null;
+    drawStartRef.current = null;
+    snapRef.current = null;
   };
 
   // Update splits change callback
@@ -499,7 +500,7 @@ export function SubdivisionManager({
       if (!map) return;
       // Remove previous highlight
       if (edgeHighlightLayerRef.current) {
-        map.removeLayer(edgeHighlightLayerRef.current);
+        (edgeHighlightLayerRef.current)?.remove?.();
         edgeHighlightLayerRef.current = null;
       }
       if (edgeIndex === null || !parentLot?.geometry) return;
@@ -525,7 +526,7 @@ export function SubdivisionManager({
   /** Clear auto-subdivision handle markers from the map */
   const clearAutoHandles = useCallback(() => {
     if (!map) return;
-    autoHandleLayersRef.current.forEach((l) => map.removeLayer(l));
+    autoHandleLayersRef.current.forEach((l) => (l)?.remove?.());
     autoHandleLayersRef.current = [];
   }, [map]);
 
@@ -550,7 +551,7 @@ export function SubdivisionManager({
 
       const METERS_PER_DEGREE = 111320;
 
-      const getHandleLatLng = (posM: number): L.LatLng => {
+      const getHandleLatLng = (posM: number): any => {
         if (config.divisionType === "width") {
           // Point along the front edge
           const lng = frontStart[0] + (posM / METERS_PER_DEGREE) * u_deg[0];
@@ -684,9 +685,7 @@ export function SubdivisionManager({
           activeAutoConfigRef.current = newPayload;
 
           // Re-render lots without closing the panel
-          drawnLineLayersRef.current.forEach((layer) => map.removeLayer(layer));
-          drawnLineLayersRef.current = [];
-          generatedLotLayersRef.current.forEach((layer) => map.removeLayer(layer));
+          generatedLotLayersRef.current.forEach((layer) => (layer)?.remove?.());
           generatedLotLayersRef.current = [];
 
           let privateCounter = 1;
@@ -726,21 +725,16 @@ export function SubdivisionManager({
       activeAutoConfigRef.current = payload;
 
       // Clear existing drawn lines and generated lots
-      drawnLineLayersRef.current.forEach((layer) => map.removeLayer(layer));
-      drawnLineLayersRef.current = [];
       setDrawnLines([]);
 
-      generatedLotLayersRef.current.forEach((layer) => map.removeLayer(layer));
+      generatedLotLayersRef.current.forEach((layer) => (layer)?.remove?.());
       generatedLotLayersRef.current = [];
 
       clearAutoHandles();
 
       // Reset drawing state
-      setCurrentDrawingPoint(null);
-      if (startPointIndicatorRef.current) {
-        map.removeLayer(startPointIndicatorRef.current);
-        startPointIndicatorRef.current = null;
-      }
+      drawStartRef.current = null;
+      snapRef.current = null;
 
       let privateCounter = 1;
       const newLots: GeneratedLot[] = payload.lots.map((applyable, i) => {
@@ -792,110 +786,43 @@ export function SubdivisionManager({
     };
   }, [subdivisionMode.active, drawnLines, generatedLots, applyAutoLots]);
 
-  // Find nearest corner of the property boundary
-  const findNearestCorner = (
-    mousePos: L.LatLng,
-  ): { corner: L.LatLng; distance: number } | null => {
-    if (!parentLot) return null;
-
-    const coordinates = parentLot.geometry.coordinates[0]; // Outer ring
-    let nearestCorner: L.LatLng | null = null;
-    let minDistance = Infinity;
-
-    // Check all corners (excluding the duplicate last point)
-    for (let i = 0; i < coordinates.length - 1; i++) {
-      const corner = coordinates[i];
-      const distance = turf.distance([mousePos.lng, mousePos.lat], corner, {
-        units: "meters",
-      });
-
-      if (distance < minDistance) {
-        minDistance = distance;
-        nearestCorner = L.latLng(corner[1], corner[0]);
+  // Snap the cursor to the nearest parcel corner, boundary edge, or existing
+  // drawn line/endpoint within SNAP_PX *pixels* (so it feels identical at every
+  // zoom). Reads drawnLinesRef so the stable drawing handlers always see the
+  // latest lines. Returns the snapped point, or null when nothing is in range.
+  const computeSnap = useCallback(
+    (e: maplibregl.MapMouseEvent): LL | null => {
+      const m = map as maplibregl.Map | null;
+      if (!m || !parentLot) return null;
+      const SNAP_PX = 12;
+      const px = e.point;
+      const cursor: [number, number] = [e.lngLat.lng, e.lngLat.lat];
+      let best: LL | null = null;
+      let bestD = Infinity;
+      const consider = (lng: number, lat: number, threshold: number) => {
+        const q = m.project([lng, lat]);
+        const d = Math.hypot(q.x - px.x, q.y - px.y);
+        if (d <= threshold && d < bestD) { best = { lng, lat }; bestD = d; }
+      };
+      const ring = parentLot.geometry.coordinates[0] as [number, number][];
+      // Corners are "stickier" (larger threshold) so lines lock onto vertices.
+      for (let i = 0; i < ring.length - 1; i++) consider(ring[i][0], ring[i][1], SNAP_PX + 5);
+      // Nearest point along each boundary edge.
+      for (let i = 0; i < ring.length - 1; i++) {
+        const np = turf.nearestPointOnLine(turf.lineString([ring[i], ring[i + 1]]), cursor);
+        consider(np.geometry.coordinates[0], np.geometry.coordinates[1], SNAP_PX);
       }
-    }
-
-    if (nearestCorner) {
-      return { corner: nearestCorner, distance: minDistance };
-    }
-
-    return null;
-  };
-
-  // Find nearest snap point (boundary or existing line)
-  const findSnapPoint = (
-    mousePos: L.LatLng,
-    threshold: number = 0.00003,
-  ): L.LatLng | null => {
-    if (!parentLot) return null;
-
-    let nearestPoint: L.LatLng | null = null;
-    let minDistance = threshold;
-
-    // Check snapping to property boundary
-    const coordinates = parentLot.geometry.coordinates[0]; // Outer ring
-    for (let i = 0; i < coordinates.length - 1; i++) {
-      const edgeStart = coordinates[i];
-      const edgeEnd = coordinates[i + 1];
-
-      // Create line segment
-      const lineSegment = turf.lineString([edgeStart, edgeEnd]);
-
-      // Find nearest point on this edge
-      const nearestOnEdge = turf.nearestPointOnLine(lineSegment, [
-        mousePos.lng,
-        mousePos.lat,
-      ]);
-      const distance = turf.distance(
-        [mousePos.lng, mousePos.lat],
-        nearestOnEdge.geometry.coordinates,
-        { units: "degrees" },
-      );
-
-      if (distance < minDistance) {
-        minDistance = distance;
-        nearestPoint = L.latLng(
-          nearestOnEdge.geometry.coordinates[1],
-          nearestOnEdge.geometry.coordinates[0],
-        );
+      // Existing drawn lines + their endpoints.
+      for (const dl of drawnLinesRef.current) {
+        if (dl.coordinates.length < 2) continue;
+        const np = turf.nearestPointOnLine(turf.lineString(dl.coordinates), cursor);
+        consider(np.geometry.coordinates[0], np.geometry.coordinates[1], SNAP_PX);
+        for (const c of dl.coordinates) consider(c[0], c[1], SNAP_PX + 5);
       }
-    }
-
-    // Check snapping to existing drawn lines
-    for (const drawnLine of drawnLines) {
-      const lineFeature = turf.lineString(drawnLine.coordinates);
-      const nearestOnLine = turf.nearestPointOnLine(lineFeature, [
-        mousePos.lng,
-        mousePos.lat,
-      ]);
-      const distance = turf.distance(
-        [mousePos.lng, mousePos.lat],
-        nearestOnLine.geometry.coordinates,
-        { units: "degrees" },
-      );
-
-      if (distance < minDistance) {
-        minDistance = distance;
-        nearestPoint = L.latLng(
-          nearestOnLine.geometry.coordinates[1],
-          nearestOnLine.geometry.coordinates[0],
-        );
-      }
-
-      // Also check line endpoints for exact snapping
-      for (const coord of drawnLine.coordinates) {
-        const distance = turf.distance([mousePos.lng, mousePos.lat], coord, {
-          units: "degrees",
-        });
-        if (distance < minDistance) {
-          minDistance = distance;
-          nearestPoint = L.latLng(coord[1], coord[0]);
-        }
-      }
-    }
-
-    return nearestPoint;
-  };
+      return best;
+    },
+    [map, parentLot],
+  );
 
   // Handle lot classification clicks
   useEffect(() => {
@@ -910,7 +837,7 @@ export function SubdivisionManager({
 
     devLog.log("✅ Setting up lot classification mode");
 
-    const handleLotClick = (e: L.LeafletEvent) => {
+    const handleLotClick = (e: any) => {
       const target = e.target;
 
       // Find which lot was clicked by checking the layer
@@ -958,241 +885,154 @@ export function SubdivisionManager({
     };
   }, [map, subdivisionMode.classifying, generatedLots]);
 
-  // CAD-like drawing with rubber band line
-  useEffect(() => {
-    if (
-      !map ||
-      !subdivisionMode.active ||
-      !subdivisionMode.drawing ||
-      !parentLot
-    ) {
-      return;
+  // ── CAD-style drawing ─────────────────────────────────────────────────────
+  // Transient visuals (rubber band, snap dot, start dot, length label) are drawn
+  // straight onto MapLibre sources and updated with setData on each mouse move —
+  // no React re-render, no add/remove churn — so drawing stays smooth.
+  const setSrc = useCallback((id: string, data: any) => {
+    const s = (map as maplibregl.Map | null)?.getSource(id) as maplibregl.GeoJSONSource | undefined;
+    if (s) s.setData(data);
+  }, [map]);
+
+  const updateDrawPoints = useCallback(() => {
+    const feats: any[] = [];
+    if (snapRef.current) feats.push(ptFeature(snapRef.current, "snap"));
+    if (drawStartRef.current) feats.push(ptFeature(drawStartRef.current, "start"));
+    setSrc(DRAW.ptsSrc, { type: "FeatureCollection", features: feats });
+  }, [setSrc]);
+
+  const showLength = useCallback((at: LL, text: string) => {
+    const m = map as maplibregl.Map | null;
+    if (!m) return;
+    if (!lengthMarkerRef.current) {
+      const el = document.createElement("div");
+      el.style.cssText =
+        "background:rgba(17,24,39,.9);color:#fff;padding:2px 7px;border-radius:6px;font:600 11px system-ui,sans-serif;white-space:nowrap;pointer-events:none;";
+      lengthMarkerRef.current = new maplibregl.Marker({ element: el, anchor: "bottom", offset: [0, -10] })
+        .setLngLat([at.lng, at.lat])
+        .addTo(m);
     }
+    lengthMarkerRef.current.setLngLat([at.lng, at.lat]);
+    lengthMarkerRef.current.getElement().textContent = text;
+  }, [map]);
 
-    devLog.log("✅ Setting up CAD-like drawing tool");
+  const hideLength = useCallback(() => {
+    lengthMarkerRef.current?.remove();
+    lengthMarkerRef.current = null;
+  }, []);
 
-    const handleMouseMove = (e: L.LeafletMouseEvent) => {
-      let targetPoint = e.latlng;
-      let isSnapping = false;
+  // Keep the committed-lines layer in sync with state.
+  useEffect(() => {
+    setSrc(DRAW.linesSrc, {
+      type: "FeatureCollection",
+      features: drawnLines.map((l) => ({
+        type: "Feature",
+        properties: {},
+        geometry: { type: "LineString", coordinates: l.coordinates },
+      })),
+    });
+  }, [drawnLines, setSrc]);
 
-      // Check for snap point
-      const snapTarget = findSnapPoint(e.latlng);
-      if (snapTarget) {
-        targetPoint = snapTarget;
-        isSnapping = true;
-      }
+  // Drawing interaction — registered ONCE per drawing session (stable deps).
+  useEffect(() => {
+    const m = map as maplibregl.Map | null;
+    if (!m || !subdivisionMode.active || !subdivisionMode.drawing || !parentLot) return;
 
-      setIsSnapping(isSnapping);
-      setSnapPoint(isSnapping ? targetPoint : null);
+    const ensure = () => {
+      const add = (srcId: string, layer: any) => {
+        if (!m.getSource(srcId)) m.addSource(srcId, { type: "geojson", data: EMPTY_FC as any });
+        if (!m.getLayer(layer.id)) m.addLayer(layer);
+      };
+      add(DRAW.linesSrc, { id: DRAW.lines, type: "line", source: DRAW.linesSrc, paint: { "line-color": "#EF4444", "line-width": 3 } });
+      add(DRAW.rubberSrc, { id: DRAW.rubber, type: "line", source: DRAW.rubberSrc, layout: { "line-cap": "round" }, paint: { "line-color": "#F59E0B", "line-width": 3, "line-dasharray": [2, 1.5] } });
+      add(DRAW.ptsSrc, { id: DRAW.snap, type: "circle", source: DRAW.ptsSrc, filter: ["==", ["get", "kind"], "snap"], paint: { "circle-radius": 7, "circle-color": "#10B981", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 } });
+      if (!m.getLayer(DRAW.start)) m.addLayer({ id: DRAW.start, type: "circle", source: DRAW.ptsSrc, filter: ["==", ["get", "kind"], "start"], paint: { "circle-radius": 5, "circle-color": "#2563EB", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 } });
+      // refresh committed lines onto the (possibly just-created) source
+      setSrc(DRAW.linesSrc, {
+        type: "FeatureCollection",
+        features: drawnLinesRef.current.map((l) => ({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: l.coordinates } })),
+      });
+    };
+    if (m.isStyleLoaded()) ensure();
+    else m.once("idle", ensure);
 
-      // Calculate distance to nearest corner when snapping to boundary
-      if (isSnapping) {
-        const cornerData = findNearestCorner(targetPoint);
-        if (cornerData) {
-          setNearestCornerDistance(cornerData.distance);
+    devLog.log("✅ CAD drawing tool ready");
 
-          // Create or update distance indicator
-          const distanceText = `${cornerData.distance.toFixed(2)}m to corner`;
-          const icon = L.divIcon({
-            className: "distance-indicator",
-            html: `<div style="background: rgba(0,0,0,0.8); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; white-space: nowrap; pointer-events: none; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">${distanceText}</div>`,
-            iconSize: [100, 20],
-            iconAnchor: [50, -10],
-          });
-
-          if (distanceIndicatorRef.current) {
-            distanceIndicatorRef.current.setLatLng(targetPoint);
-            distanceIndicatorRef.current.setIcon(icon);
-          } else {
-            distanceIndicatorRef.current = L.marker(targetPoint, {
-              icon,
-            }).addTo(map);
-          }
-        } else {
-          setNearestCornerDistance(null);
-          if (distanceIndicatorRef.current) {
-            map.removeLayer(distanceIndicatorRef.current);
-            distanceIndicatorRef.current = null;
-          }
-        }
-      } else {
-        setNearestCornerDistance(null);
-        if (distanceIndicatorRef.current) {
-          map.removeLayer(distanceIndicatorRef.current);
-          distanceIndicatorRef.current = null;
-        }
-      }
-
-      // Update or create snap indicator
-      if (isSnapping) {
-        if (snapIndicatorRef.current) {
-          snapIndicatorRef.current.setLatLng(targetPoint);
-        } else {
-          snapIndicatorRef.current = L.circleMarker(targetPoint, {
-            radius: 8,
-            color: "#10B981",
-            fillColor: "#10B981",
-            fillOpacity: 0.9,
-            weight: 3,
-          }).addTo(map);
-        }
-      } else {
-        if (snapIndicatorRef.current) {
-          map.removeLayer(snapIndicatorRef.current);
-          snapIndicatorRef.current = null;
-        }
-      }
-
-      // Update or create rubber band line if we have a starting point
-      if (currentDrawingPoint) {
-        if (rubberBandLineRef.current) {
-          // Update existing line instead of removing/re-adding (reduces flickering)
-          rubberBandLineRef.current.setLatLngs([
-            currentDrawingPoint,
-            targetPoint,
-          ]);
-        } else {
-          // Create new rubber band line with high visibility
-          rubberBandLineRef.current = L.polyline(
-            [currentDrawingPoint, targetPoint],
-            {
-              color: "#F59E0B",
-              weight: 4,
-              opacity: 0.9,
-              dashArray: "8, 4",
-              lineCap: "round",
-            },
-          ).addTo(map);
-        }
+    const onMove = (e: maplibregl.MapMouseEvent) => {
+      const snap = computeSnap(e);
+      snapRef.current = snap;
+      const target = snap || { lng: e.lngLat.lng, lat: e.lngLat.lat };
+      updateDrawPoints();
+      const start = drawStartRef.current;
+      if (start) {
+        setSrc(DRAW.rubberSrc, {
+          type: "Feature",
+          properties: {},
+          geometry: { type: "LineString", coordinates: [[start.lng, start.lat], [target.lng, target.lat]] },
+        });
+        const len = turf.distance([start.lng, start.lat], [target.lng, target.lat], { units: "meters" });
+        showLength(target, `${len.toFixed(1)} m`);
       }
     };
 
-    const handleMapClick = (e: L.LeafletMouseEvent) => {
-      let clickPoint = e.latlng;
-
-      // Use snap point if snapping
-      if (isSnapping && snapPoint) {
-        clickPoint = snapPoint;
-      }
-
-      if (!currentDrawingPoint) {
-        // First click - start drawing
-        setCurrentDrawingPoint(clickPoint);
-
-        // Show start point indicator
-        startPointIndicatorRef.current = L.circleMarker(clickPoint, {
-          radius: 5,
-          color: "#3B82F6",
-          fillColor: "#3B82F6",
-          fillOpacity: 1,
-          weight: 2,
-        }).addTo(map);
-
-        devLog.log("🎯 Started drawing from:", clickPoint);
+    const onClick = (e: maplibregl.MapMouseEvent) => {
+      const p = snapRef.current || { lng: e.lngLat.lng, lat: e.lngLat.lat };
+      const start = drawStartRef.current;
+      if (!start) {
+        drawStartRef.current = p;
+        updateDrawPoints();
       } else {
-        // Second click - complete the line
-        const lineCoords: [number, number][] = [
-          [currentDrawingPoint.lng, currentDrawingPoint.lat],
-          [clickPoint.lng, clickPoint.lat],
-        ];
-
-        // Create permanent line
-        const line = L.polyline([currentDrawingPoint, clickPoint], {
-          color: "#EF4444",
-          weight: 3,
-          opacity: 0.9,
-        }).addTo(map);
-
-        const drawnLine: DrawnLine = {
-          id: `line_${Date.now()}`,
-          geometry: line,
-          coordinates: lineCoords,
-        };
-
-        setDrawnLines((prev) => [...prev, drawnLine]);
-        drawnLineLayersRef.current.push(line);
-
-        devLog.log("✅ Line drawn:", drawnLine);
-
-        // Reset for next line
-        setCurrentDrawingPoint(null);
-        if (startPointIndicatorRef.current) {
-          map.removeLayer(startPointIndicatorRef.current);
-          startPointIndicatorRef.current = null;
-        }
+        const coords: [number, number][] = [[start.lng, start.lat], [p.lng, p.lat]];
+        setDrawnLines((prev) => [...prev, { id: `line_${Date.now()}`, coordinates: coords }]);
+        drawStartRef.current = null;
+        setSrc(DRAW.rubberSrc, EMPTY_FC as any);
+        updateDrawPoints();
+        hideLength();
       }
     };
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        // Cancel current drawing
-        setCurrentDrawingPoint(null);
-        if (startPointIndicatorRef.current) {
-          map.removeLayer(startPointIndicatorRef.current);
-          startPointIndicatorRef.current = null;
-        }
-        if (rubberBandLineRef.current) {
-          map.removeLayer(rubberBandLineRef.current);
-          rubberBandLineRef.current = null;
-        }
-        devLog.log("🚫 Drawing cancelled");
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && drawStartRef.current) {
+        drawStartRef.current = null;
+        setSrc(DRAW.rubberSrc, EMPTY_FC as any);
+        updateDrawPoints();
+        hideLength();
       }
     };
 
-    map.on("mousemove", handleMouseMove);
-    map.on("click", handleMapClick);
-    document.addEventListener("keydown", handleKeyDown);
+    m.on("mousemove", onMove);
+    m.on("click", onClick);
+    document.addEventListener("keydown", onKey);
+    // Crosshair on the canvas container (MapLibre's idiomatic cursor target —
+    // it isn't reset on hover the way the inner canvas element is).
+    const cc = m.getCanvasContainer();
+    const prevCursor = cc.style.cursor;
+    cc.style.cursor = "crosshair";
 
     return () => {
-      map.off("mousemove", handleMouseMove);
-      map.off("click", handleMapClick);
-      document.removeEventListener("keydown", handleKeyDown);
-
-      // Clean up visual feedback
-      if (rubberBandLineRef.current) {
-        map.removeLayer(rubberBandLineRef.current);
-        rubberBandLineRef.current = null;
-      }
-      if (snapIndicatorRef.current) {
-        map.removeLayer(snapIndicatorRef.current);
-        snapIndicatorRef.current = null;
-      }
-      if (startPointIndicatorRef.current) {
-        map.removeLayer(startPointIndicatorRef.current);
-        startPointIndicatorRef.current = null;
-      }
-      if (distanceIndicatorRef.current) {
-        map.removeLayer(distanceIndicatorRef.current);
-        distanceIndicatorRef.current = null;
-      }
+      m.off("mousemove", onMove);
+      m.off("click", onClick);
+      document.removeEventListener("keydown", onKey);
+      cc.style.cursor = prevCursor;
+      drawStartRef.current = null;
+      snapRef.current = null;
+      setSrc(DRAW.rubberSrc, EMPTY_FC as any);
+      setSrc(DRAW.ptsSrc, EMPTY_FC as any);
+      hideLength();
     };
-  }, [
-    map,
-    subdivisionMode,
-    parentLot,
-    currentDrawingPoint,
-    isSnapping,
-    snapPoint,
-    drawnLines,
-  ]);
+  }, [map, subdivisionMode.active, subdivisionMode.drawing, parentLot, computeSnap, setSrc, updateDrawPoints, showLength, hideLength]);
 
-  // Clear all drawn lines
+  // Clear all drawn lines (and any generated lots).
   const clearLines = () => {
-    drawnLineLayersRef.current.forEach((layer) => map?.removeLayer(layer));
-    drawnLineLayersRef.current = [];
     setDrawnLines([]);
-
-    // Clear generated lots too
-    generatedLotLayersRef.current.forEach((layer) => map?.removeLayer(layer));
+    generatedLotLayersRef.current.forEach((layer) => (layer)?.remove?.());
     generatedLotLayersRef.current = [];
     setGeneratedLots([]);
-
-    // Reset drawing state
-    setCurrentDrawingPoint(null);
-    if (startPointIndicatorRef.current) {
-      map?.removeLayer(startPointIndicatorRef.current);
-      startPointIndicatorRef.current = null;
-    }
+    drawStartRef.current = null;
+    snapRef.current = null;
+    setSrc(DRAW.rubberSrc, EMPTY_FC as any);
+    updateDrawPoints();
+    hideLength();
   };
 
   // Generate lots from drawn lines using Web Worker-based robust polygon splitting
@@ -1216,7 +1056,7 @@ export function SubdivisionManager({
 
     try {
       // Clear existing generated lots
-      generatedLotLayersRef.current.forEach((layer) => map?.removeLayer(layer));
+      generatedLotLayersRef.current.forEach((layer) => (layer)?.remove?.());
       generatedLotLayersRef.current = [];
 
       // Prepare parent polygon for JSTS splitting

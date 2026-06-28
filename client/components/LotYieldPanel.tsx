@@ -8,6 +8,7 @@ import {
   Info
 } from 'lucide-react';
 import { getZoningRequirements, extractRCode, SubdivisionMode, getEffectiveMinLotArea } from '@/lib/zoning-requirements';
+import { queryPlanningData } from '@/lib/slip-wa-api';
 import type { SelectedParcel, PropertyData } from "../../shared/types";
 
 interface LotYieldPanelProps {
@@ -41,6 +42,9 @@ export function LotYieldPanel({
 }: LotYieldPanelProps) {
   const [subdivisionMode, setSubdivisionMode] = useState<SubdivisionMode>('strata');
   const [estimate, setEstimate] = useState<YieldEstimate | null>(null);
+  // The R-Code isn't part of the parcel payload (it's a separate planning-layer
+  // query), so we fetch it on demand when the parcel data doesn't carry one.
+  const [fetchedRCode, setFetchedRCode] = useState<string | null>(null);
 
   const calculateYield = () => {
     devLog.log('🎯 calculateYield called with selectedParcel:', selectedParcel);
@@ -73,8 +77,16 @@ export function LotYieldPanel({
       area = rawArea;
     }
 
-    // Get zoning from main property data (same as Site Analysis panel uses)
-    const zoning = propertyData?.zoning || 'R35'; // The main data should have the R-Code
+    // Resolve the density code. Prefer explicit R-Code fields — note that the
+    // `zoning` field often carries the *scheme name* (e.g. "STIRLING"), not an
+    // R-Code, so it must come last.
+    const zoning =
+      propertyData?.rCode ||
+      selectedParcel?.data?.rCode ||
+      fetchedRCode ||
+      propertyData?.zoning ||
+      selectedParcel?.data?.zoning ||
+      'R35';
 
     devLog.log('🏠 LotYieldPanel final extraction:', {
       area,
@@ -168,10 +180,27 @@ export function LotYieldPanel({
     devLog.log('🏠 Lot Yield Estimate set successfully');
   };
 
+  // Fetch the R-Code from the planning layer when the parcel doesn't carry one
+  // (same source the subdivision tool uses), so the yield uses the real density.
+  useEffect(() => {
+    setFetchedRCode(null);
+    // Only consider it "resolved" if we can parse a real R-Code (the `zoning`
+    // field may just be a scheme name like "STIRLING").
+    const hasRCode =
+      extractRCode(propertyData?.rCode) || extractRCode(propertyData?.zoning) ||
+      extractRCode(selectedParcel?.data?.rCode) || extractRCode(selectedParcel?.data?.zoning);
+    if (!show || hasRCode || !selectedParcel?.coordinates) return;
+    let cancelled = false;
+    queryPlanningData({ coordinates: selectedParcel.coordinates })
+      .then((res) => { if (!cancelled && res?.rCode) setFetchedRCode(res.rCode); })
+      .catch((err) => devLog.warn('❌ LotYield R-Code fetch failed:', err));
+    return () => { cancelled = true; };
+  }, [show, selectedParcel, propertyData]);
+
   // Auto-calculate when component shows and has property data
   useEffect(() => {
     devLog.log('🎯 LotYieldPanel useEffect triggered:', { show, hasPropertyData: !!propertyData, subdivisionMode });
-    if (show && propertyData) {
+    if (show && (propertyData || selectedParcel)) {
       devLog.log('🎯 Calling calculateYield...');
       try {
         calculateYield();
@@ -179,7 +208,7 @@ export function LotYieldPanel({
         console.error('❌ Error in calculateYield:', error);
       }
     }
-  }, [show, propertyData, subdivisionMode]);
+  }, [show, propertyData, selectedParcel, subdivisionMode, fetchedRCode]);
 
   if (!show) {
     return null;

@@ -1,4 +1,3 @@
-import L from "leaflet";
 import { queryPropertyDetails } from "./slip-wa-api";
 import { extractRCode, getZoningRequirements } from "./zoning-requirements";
 import { devLog } from "./logger";
@@ -57,13 +56,6 @@ function getColorByLotYield(lotYield: number): string {
   if (lotYield >= 2) return "#10B981"; // Green - has development potential
   if (lotYield <= 1) return "#4B5563"; // Dark grey - no development potential (1 or less)
   return "#9CA3AF"; // Light grey - loading/uncertain
-}
-
-/**
- * Safe base64 encoding that handles UTF-8 characters
- */
-function utf8ToBase64(str: string): string {
-  return btoa(unescape(encodeURIComponent(str)));
 }
 
 /**
@@ -153,26 +145,18 @@ function createListingMarkerIcon(
   listing: Listing,
   colorScheme: "type" | "price" | "yield" = "type",
   lotYield?: number,
-): L.Icon {
+): string {
   let color: string;
 
   if (colorScheme === "price") {
     color = getColorByPrice(listing.price);
   } else if (colorScheme === "yield") {
-    // Default to light grey if no yield data yet
     color = lotYield !== undefined ? getColorByLotYield(lotYield) : "#9CA3AF";
   } else {
     color = getColorByPropertyType(listing.propertyType);
   }
 
-  const svgIcon = `<svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="20" r="18" fill="${color}" opacity="0.2" stroke="${color}" stroke-width="2"/><circle cx="20" cy="20" r="12" fill="${color}"/><path d="M20 10C20 10 15 15 15 20C15 23.314 17.239 26 20 26C22.761 26 25 23.314 25 20C25 15 20 10 20 10Z" fill="white"/><circle cx="20" cy="20" r="2" fill="${color}"/></svg>`;
-
-  return L.icon({
-    iconUrl: `data:image/svg+xml;base64,${utf8ToBase64(svgIcon)}`,
-    iconSize: [40, 40],
-    iconAnchor: [20, 40],
-    popupAnchor: [0, -40],
-  });
+  return `<svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="20" r="18" fill="${color}" opacity="0.2" stroke="${color}" stroke-width="2"/><circle cx="20" cy="20" r="12" fill="${color}"/><path d="M20 10C20 10 15 15 15 20C15 23.314 17.239 26 20 26C22.761 26 25 23.314 25 20C25 15 20 10 20 10Z" fill="white"/><circle cx="20" cy="20" r="2" fill="${color}"/></svg>`;
 }
 
 /**
@@ -276,159 +260,98 @@ function createListingPopup(listing: Listing): string {
  * Requires Leaflet.markercluster plugin to be loaded
  */
 export function addListingsToMap(
-  map: L.Map,
+  map: any,  // maplibregl.Map
   listings: Listing[],
   options: {
     colorScheme?: "type" | "price" | "yield";
     onMarkerClick?: (listing: Listing) => void;
     backgroundFetch?: boolean;
   } = {},
-): L.LayerGroup {
-  const {
-    colorScheme = "type",
-    onMarkerClick,
-    backgroundFetch = false,
-  } = options;
+): any {  // returns array of maplibregl.Marker
+  const { colorScheme = "type", onMarkerClick, backgroundFetch = false } = options;
 
-  // Create marker cluster group if markercluster is available
-  let markerLayer: L.LayerGroup;
+  const markers: any[] = [];
+  const markerMap = new Map<string, any>();
 
-  try {
-    // Try to use marker cluster if available
-    const MarkerClusterGroup = (L as any).markerClusterGroup;
-    if (MarkerClusterGroup) {
-      markerLayer = new MarkerClusterGroup({
-        maxClusterRadius: 80,
-        disableClusteringAtZoom: 17,
-        spiderfyOnMaxZoom: true,
-      });
-    } else {
-      markerLayer = L.layerGroup();
-    }
-  } catch {
-    // Fallback to regular layer group
-    markerLayer = L.layerGroup();
-  }
-
-  // Store markers by listing ID for updating
-  const markerMap = new Map<string, L.Marker>();
-
-  // Add markers for each listing
   listings.forEach((listing) => {
     if (!listing.coordinates) {
       devLog.warn(`⚠️ No coordinates for listing: ${listing.address}`);
       return;
     }
 
-    const marker = L.marker(
-      [listing.coordinates.lat, listing.coordinates.lng],
-      {
-        icon: createListingMarkerIcon(
-          listing,
-          colorScheme,
-          colorScheme === "yield" ? 1 : undefined,
-        ),
-        title: listing.address,
-      },
-    )
-      .bindPopup(createListingPopup(listing), { maxWidth: 300 })
-      .on("popupopen", async () => {
-        // Fetch accurate data from SLIP WA when popup opens
-        if (listing.coordinates) {
-          const propertyData = await fetchPropertyDataFromSlipWa(
-            listing.coordinates,
-          );
+    const el = document.createElement("div");
+    el.innerHTML = createListingMarkerIcon(listing, colorScheme, colorScheme === "yield" ? 1 : undefined);
+    el.style.cssText = "cursor: pointer;";
 
-          if (propertyData) {
-            // Update the popup with accurate data
-            const updatedPopup = createDetailedListingPopup(
-              listing,
-              propertyData,
-            );
-            marker.setPopupContent(updatedPopup);
-          }
+    const popup = new (window as any).maplibregl.Popup({ maxWidth: "300px" })
+      .setHTML(createListingPopup(listing));
+
+    const marker = new (window as any).maplibregl.Marker({ element: el })
+      .setLngLat([listing.coordinates.lng, listing.coordinates.lat])
+      .setPopup(popup)
+      .addTo(map);
+
+    el.addEventListener("click", async () => {
+      onMarkerClick?.(listing);
+      if (listing.coordinates) {
+        const propertyData = await fetchPropertyDataFromSlipWa(listing.coordinates);
+        if (propertyData) {
+          popup.setHTML(createDetailedListingPopup(listing, propertyData));
         }
+      }
+    });
 
-        // Call the callback
-        onMarkerClick?.(listing);
-      });
-
+    markers.push(marker);
     markerMap.set(listing.id, marker);
-    markerLayer.addLayer(marker);
   });
-
-  // Add to map
-  markerLayer.addTo(map);
 
   devLog.log(`✅ Added ${listings.length} listing markers to map`);
 
-  // Fetch data in background if colorScheme is 'yield'
   if (backgroundFetch && colorScheme === "yield") {
-    devLog.log(`📊 Starting background fetch of property yield data...`);
-
-    // Fetch data for each listing
     listings.forEach(async (listing) => {
       if (!listing.coordinates) return;
-
       try {
-        const propertyData = await fetchPropertyDataFromSlipWa(
-          listing.coordinates,
-        );
-
+        const propertyData = await fetchPropertyDataFromSlipWa(listing.coordinates);
         if (propertyData) {
-          const yieldData = calculateLotYield(
-            propertyData.lotSize,
-            propertyData.rCode,
-          );
-
-          // Update the marker icon with the new yield color
+          const yieldData = calculateLotYield(propertyData.lotSize, propertyData.rCode);
           const marker = markerMap.get(listing.id);
           if (marker) {
-            marker.setIcon(
-              createListingMarkerIcon(listing, "yield", yieldData.yield),
-            );
-            devLog.log(
-              `🎨 Updated pin for ${listing.address}: yield=${yieldData.yield}`,
-            );
+            const el = marker.getElement();
+            if (el) el.innerHTML = createListingMarkerIcon(listing, "yield", yieldData.yield);
           }
         }
       } catch (error) {
-        devLog.warn(
-          `⚠️ Failed to fetch yield data for ${listing.address}:`,
-          error,
-        );
+        devLog.warn(`⚠️ Failed to fetch yield data for ${listing.address}:`, error);
       }
     });
   }
 
-  return markerLayer;
+  return markers;
 }
 
 /**
  * Remove listings from map
  */
 export function removeListingsFromMap(
-  map: L.Map,
-  markerLayer: L.LayerGroup,
+  _map: any,
+  markerLayer: any,  // array of maplibregl.Marker
 ): void {
-  if (markerLayer) {
-    map.removeLayer(markerLayer);
+  if (Array.isArray(markerLayer)) {
+    markerLayer.forEach((m: any) => m?.remove?.());
   }
 }
 
 /**
  * Fit map to show all listings
  */
-export function fitMapToBounds(map: L.Map, listings: Listing[]): void {
+export function fitMapToBounds(map: any, listings: Listing[]): void {
   const validListings = listings.filter((l) => l.coordinates);
-
   if (validListings.length === 0) return;
 
-  const bounds = L.latLngBounds(
-    validListings.map(
-      (l) => [l.coordinates!.lat, l.coordinates!.lng] as L.LatLngTuple,
-    ),
-  );
+  const lngs = validListings.map((l) => l.coordinates!.lng);
+  const lats = validListings.map((l) => l.coordinates!.lat);
+  const sw: [number, number] = [Math.min(...lngs), Math.min(...lats)];
+  const ne: [number, number] = [Math.max(...lngs), Math.max(...lats)];
 
-  map.fitBounds(bounds, { padding: [50, 50] });
+  map.fitBounds([sw, ne], { padding: 50 });
 }
