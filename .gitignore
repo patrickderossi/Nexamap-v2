@@ -32,3 +32,6 @@ scrape-debug/
 .env
 .env.local
 .env.*.local
+
+# Local Mac launcher app (machine-specific, built via osacompile)
+/NexaMap.app/
